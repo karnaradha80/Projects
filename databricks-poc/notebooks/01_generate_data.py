@@ -1,0 +1,280 @@
+"""
+01_generate_data.py
+==================
+Generate realistic synthetic data for all 3 SoW categories.
+
+Data mirrors real-world patterns:
+- Time Series: Smart meter readings with consumption patterns
+  (higher during day, lower at night)
+- Snapshot: Network asset status with realistic UK coordinates
+- File Data: Demand forecasts with confidence intervals
+
+Run: python notebooks/01_generate_data.py
+
+Expected output:
+  Time Series:  168,000 records (~50 MB)
+  Snapshot:      14,000 records (~15 MB)
+  File Data:     84,000 records (~25 MB)
+"""
+
+import sys
+import os
+import time
+import random
+from datetime import datetime, timedelta
+
+# Add project root to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from config.spark_config import get_spark_session
+from config.pipeline_config import get_path, DATA_CONFIG
+
+from pyspark.sql.types import *
+
+# ============================================================
+# Initialise Spark
+# ============================================================
+spark = get_spark_session("DataGeneration")
+start_time = time.time()
+
+print("=" * 60)
+print("  DATA GENERATION")
+print("  SoW Categories: Time Series, Snapshot, File Data")
+print("=" * 60)
+
+# ============================================================
+# Common reference data
+# ============================================================
+REGIONS = ["NORTH", "SOUTH", "EAST", "WEST", "CENTRAL"]
+BASE_DATE = datetime(2026, 1, 1)
+
+# ============================================================
+# 1. TIME SERIES DATA
+# ============================================================
+# What: Smart meter readings recorded every 30 minutes
+# Production: ~163 GB/month (~5.4 GB/day)
+# POC: 500 meters × 7 days × 48 readings/day = 168,000 records
+#
+# Realistic patterns:
+#   - Consumption higher during daytime (7am-7pm)
+#   - Random variation within ±20%
+#   - 85% VALID, 8% ESTIMATED, 5% SUSPECT, 2% MISSING quality
+# ============================================================
+
+print("\n[1/3] Generating Time Series data...")
+print(f"      {DATA_CONFIG['timeseries']['num_meters']} meters × "
+      f"{DATA_CONFIG['timeseries']['num_days']} days × "
+      f"{DATA_CONFIG['timeseries']['readings_per_day']} readings/day")
+
+schema_ts = StructType([
+    StructField("meter_id", StringType(), False),
+    StructField("reading_timestamp", TimestampType(), False),
+    StructField("reading_value_kwh", DoubleType(), False),
+    StructField("reading_quality", StringType(), True),
+    StructField("meter_type", StringType(), False),
+    StructField("region_code", StringType(), False),
+    StructField("data_source", StringType(), False)
+])
+
+quality_codes = ["VALID", "ESTIMATED", "SUSPECT", "MISSING"]
+quality_weights = [0.85, 0.08, 0.05, 0.02]
+meter_types = ["SMART_ELEC", "SMART_GAS", "LEGACY_ELEC"]
+
+ts_rows = []
+num_meters = DATA_CONFIG["timeseries"]["num_meters"]
+num_days = DATA_CONFIG["timeseries"]["num_days"]
+readings_per_day = DATA_CONFIG["timeseries"]["readings_per_day"]
+
+for meter_idx in range(num_meters):
+    meter_id = f"MTR-{meter_idx:06d}"
+    region = REGIONS[meter_idx % len(REGIONS)]
+    m_type = meter_types[meter_idx % len(meter_types)]
+    base_consumption = random.uniform(0.5, 3.0)
+
+    for day in range(num_days):
+        for reading in range(readings_per_day):
+            ts = BASE_DATE + timedelta(days=day, minutes=reading * 30)
+
+            # Realistic consumption: higher during daytime
+            hour = ts.hour
+            if 7 <= hour <= 9:       # Morning peak
+                hour_factor = 1.5
+            elif 17 <= hour <= 20:    # Evening peak
+                hour_factor = 1.8
+            elif 10 <= hour <= 16:    # Daytime
+                hour_factor = 1.2
+            elif 21 <= hour <= 23:    # Late evening
+                hour_factor = 1.0
+            else:                     # Night (midnight - 6am)
+                hour_factor = 0.4
+
+            value = round(base_consumption * hour_factor * random.uniform(0.8, 1.2), 4)
+            quality = random.choices(quality_codes, quality_weights)[0]
+
+            ts_rows.append((
+                meter_id, ts, value, quality, m_type, region, "SPENW_METERING"
+            ))
+
+ts_df = spark.createDataFrame(ts_rows, schema_ts)
+ts_df.write.mode("overwrite").parquet(get_path("raw_timeseries"))
+ts_count = ts_df.count()
+print(f"      Generated: {ts_count:,} records")
+
+# ============================================================
+# 2. SNAPSHOT DATA
+# ============================================================
+# What: Daily point-in-time capture of network asset status
+# Production: ~5.2 GB/month
+# POC: 2,000 assets × 7 days = 14,000 records
+#
+# Realistic patterns:
+#   - 80% ACTIVE, 10% INACTIVE, 7% MAINTENANCE, 3% DECOMMISSIONED
+#   - UK coordinates (lat: 50-58, lon: -6 to 2)
+#   - Standard voltage levels (11kV, 33kV, 66kV, 132kV, 275kV, 400kV)
+# ============================================================
+
+print("\n[2/3] Generating Snapshot data...")
+print(f"      {DATA_CONFIG['snapshot']['num_assets']} assets × "
+      f"{DATA_CONFIG['snapshot']['num_snapshots']} daily snapshots")
+
+schema_snap = StructType([
+    StructField("asset_id", StringType(), False),
+    StructField("snapshot_date", DateType(), False),
+    StructField("asset_type", StringType(), False),
+    StructField("status", StringType(), False),
+    StructField("capacity_mw", DoubleType(), True),
+    StructField("voltage_kv", DoubleType(), True),
+    StructField("location_lat", DoubleType(), True),
+    StructField("location_lon", DoubleType(), True),
+    StructField("parent_asset_id", StringType(), True),
+    StructField("last_maintenance_date", DateType(), True),
+    StructField("firmware_version", StringType(), True)
+])
+
+asset_types = ["TRANSFORMER", "SWITCH", "CABLE", "METER_POINT", "SUBSTATION"]
+statuses = ["ACTIVE", "INACTIVE", "MAINTENANCE", "DECOMMISSIONED"]
+status_weights = [0.80, 0.10, 0.07, 0.03]
+voltage_levels = [11.0, 33.0, 66.0, 132.0, 275.0, 400.0]
+
+snap_rows = []
+num_assets = DATA_CONFIG["snapshot"]["num_assets"]
+num_snapshots = DATA_CONFIG["snapshot"]["num_snapshots"]
+
+for snap_day in range(num_snapshots):
+    snap_date = BASE_DATE.date() + timedelta(days=snap_day)
+    for asset_idx in range(num_assets):
+        asset_id = f"AST-{asset_idx:07d}"
+        a_type = asset_types[asset_idx % len(asset_types)]
+        status = random.choices(statuses, status_weights)[0]
+
+        snap_rows.append((
+            asset_id,
+            snap_date,
+            a_type,
+            status,
+            round(random.uniform(10, 500), 2),
+            random.choice(voltage_levels),
+            round(random.uniform(50.0, 58.0), 6),   # UK latitude
+            round(random.uniform(-6.0, 2.0), 6),     # UK longitude
+            f"AST-{random.randint(0, 100):07d}" if random.random() > 0.3 else None,
+            BASE_DATE.date() - timedelta(days=random.randint(1, 365)),
+            f"v{random.randint(1,5)}.{random.randint(0,9)}.{random.randint(0,99)}"
+        ))
+
+snap_df = spark.createDataFrame(snap_rows, schema_snap)
+snap_df.write.mode("overwrite").parquet(get_path("raw_snapshot"))
+snap_count = snap_df.count()
+print(f"      Generated: {snap_count:,} records")
+
+# ============================================================
+# 3. FILE DATA (ERM Demand Forecasts)
+# ============================================================
+# What: Energy demand forecasts with 7-day hourly horizon
+# Production: ~25 GB/month (spreadsheets + ERM data)
+# POC: 500 forecasts × 168 hours = 84,000 records
+#
+# Realistic patterns:
+#   - Demand varies by time of day (peaks at morning/evening)
+#   - Confidence interval widens with forecast horizon
+#   - 4 scenarios: BASE, HIGH, LOW, STRESS
+# ============================================================
+
+print("\n[3/3] Generating File/Forecast data...")
+print(f"      {DATA_CONFIG['files']['num_forecasts']} forecasts × "
+      f"{DATA_CONFIG['files']['forecast_hours']} hours each")
+
+schema_file = StructType([
+    StructField("forecast_id", StringType(), False),
+    StructField("forecast_date", DateType(), False),
+    StructField("horizon_hours", IntegerType(), False),
+    StructField("predicted_demand_mw", DoubleType(), False),
+    StructField("confidence_lower", DoubleType(), True),
+    StructField("confidence_upper", DoubleType(), True),
+    StructField("model_version", StringType(), False),
+    StructField("region", StringType(), False),
+    StructField("scenario", StringType(), False)
+])
+
+scenarios = ["BASE", "HIGH", "LOW", "STRESS"]
+file_rows = []
+num_forecasts = DATA_CONFIG["files"]["num_forecasts"]
+forecast_hours = DATA_CONFIG["files"]["forecast_hours"]
+
+for fc_idx in range(num_forecasts):
+    fc_id = f"FC-{fc_idx:06d}"
+    fc_date = BASE_DATE.date() + timedelta(days=fc_idx % 30)
+    region = REGIONS[fc_idx % len(REGIONS)]
+    scenario = scenarios[fc_idx % len(scenarios)]
+    base_demand = random.uniform(500, 2000)
+
+    for hour in range(forecast_hours):
+        # Demand pattern: peaks at 8am and 6pm
+        hour_of_day = hour % 24
+        if 7 <= hour_of_day <= 9:
+            time_factor = 1.4
+        elif 17 <= hour_of_day <= 20:
+            time_factor = 1.6
+        elif 10 <= hour_of_day <= 16:
+            time_factor = 1.1
+        else:
+            time_factor = 0.6
+
+        demand = base_demand * time_factor * random.uniform(0.95, 1.05)
+
+        # Confidence widens with horizon (uncertainty grows)
+        horizon_factor = 1 + (hour / forecast_hours) * 0.5
+        margin = demand * 0.05 * horizon_factor
+
+        file_rows.append((
+            fc_id, fc_date, hour,
+            round(demand, 2),
+            round(demand - margin, 2),
+            round(demand + margin, 2),
+            "ERM-v3.2.1",
+            region,
+            scenario
+        ))
+
+file_df = spark.createDataFrame(file_rows, schema_file)
+file_df.write.mode("overwrite").parquet(get_path("raw_files"))
+file_count = file_df.count()
+print(f"      Generated: {file_count:,} records")
+
+# ============================================================
+# Summary
+# ============================================================
+elapsed = round(time.time() - start_time, 1)
+total_records = ts_count + snap_count + file_count
+
+print("\n" + "=" * 60)
+print("  DATA GENERATION COMPLETE")
+print("=" * 60)
+print(f"  Time Series:   {ts_count:>10,} records")
+print(f"  Snapshot:       {snap_count:>10,} records")
+print(f"  File Data:      {file_count:>10,} records")
+print(f"  {'─' * 35}")
+print(f"  Total:          {total_records:>10,} records")
+print(f"  Elapsed time:   {elapsed} seconds")
+print(f"  Data location:  {os.path.dirname(get_path('raw_timeseries'))}")
+print("=" * 60)
+
+spark.stop()
