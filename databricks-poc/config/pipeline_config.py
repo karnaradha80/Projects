@@ -2,6 +2,7 @@
 Pipeline Configuration
 All paths and settings used across the pipeline.
 Switch MODE to "azure" when migrating to Part 2.
+Switch RUNTIME to "databricks" to run on Databricks Community Edition.
 """
 
 import os
@@ -10,6 +11,40 @@ import os
 # MODE: "local" for Windows development, "azure" for cloud
 # ============================================================
 MODE = "local"
+
+# ============================================================
+# RUNTIME: where the pipeline actually executes
+#   "local"       — runs on this machine via subprocess (default)
+#   "databricks"  — triggers notebooks on Databricks Community Edition
+#                   via REST API (requires DATABRICKS_TOKEN env var)
+# ============================================================
+RUNTIME = "local"
+
+# ============================================================
+# Databricks connection (only used when RUNTIME = "databricks")
+# ============================================================
+DATABRICKS_CONFIG = {
+    # Your Community Edition workspace URL
+    "workspace_url": "https://community.cloud.databricks.com",
+
+    # Personal Access Token — set as env var, never hardcode
+    # Generate in Databricks: User Settings → Access Tokens → Generate New Token
+    # Then run: set DATABRICKS_TOKEN=your_token_here  (Windows cmd)
+    #       or: $env:DATABRICKS_TOKEN="your_token_here"  (PowerShell)
+    "token": os.environ.get("DATABRICKS_TOKEN", ""),
+
+    # Full workspace path to your run_pipeline notebook
+    # e.g. "/Users/you@email.com/databricks/run_pipeline"
+    "notebook_path": "/Users/<your-email>/databricks/run_pipeline",
+
+    # Cluster ID to attach to (leave blank to spin up a new one per run)
+    # Find it in Databricks: Compute → your cluster → Configuration → Tags → ClusterId
+    "cluster_id": "",
+
+    # Spark version for new cluster (if cluster_id is blank)
+    "spark_version": "13.3.x-scala2.12",
+    "node_type":     "Standard_DS3_v2",
+}
 
 # ============================================================
 # Base paths
@@ -126,3 +161,13 @@ def get_all_paths():
 def get_db_config():
     """Get database config for current MODE."""
     return DB_CONFIG[MODE]
+
+
+def get_runtime():
+    """Get current RUNTIME setting."""
+    return RUNTIME
+
+
+def get_databricks_config():
+    """Get Databricks connection config."""
+    return DATABRICKS_CONFIG

@@ -129,7 +129,7 @@ for meter_idx in range(num_meters):
             quality = random.choices(quality_codes, quality_weights)[0]
 
             ts_rows.append((
-                meter_id, ts, value, quality, m_type, region, "SPENW_METERING"
+                meter_id, ts, value, quality, m_type, region, "UTILITICS_METERING"
             ))
 
 ts_df = spark.createDataFrame(ts_rows, schema_ts)

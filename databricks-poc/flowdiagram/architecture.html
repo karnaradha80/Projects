@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Utilitics — Azure Databricks Data Sharing POC — Architecture &amp; Roadmap</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      padding: 32px 24px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.7rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #8b949e;
+      font-size: 0.9rem;
+      margin-bottom: 36px;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+    }
+    .dot {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .dot-done   { background: #238636; }
+    .dot-now    { background: #f7c948; border: 2px solid #fff; }
+    .dot-next   { background: #1f6feb; }
+    .dot-future { background: #6e40c9; }
+
+    /* Section headers */
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #58a6ff;
+      border-bottom: 1px solid #21262d;
+      padding-bottom: 8px;
+      margin-bottom: 20px;
+      margin-top: 40px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+    }
+    .badge-done   { background: #238636; color: #fff; }
+    .badge-next   { background: #1f6feb; color: #fff; }
+    .badge-future { background: #6e40c9; color: #fff; }
+    .badge-you    { background: #f7c948; color: #000; }
+
+    /* Mermaid wrapper */
+    .diagram-wrap {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 10px;
+      padding: 28px 20px;
+      overflow-x: auto;
+      margin-bottom: 24px;
+    }
+
+    /* Status table */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .status-card {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .status-card .card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+    }
+    .status-card .card-val {
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+    .status-card .card-sub {
+      font-size: 0.75rem;
+      color: #8b949e;
+      margin-top: 2px;
+    }
+    .green  { color: #3fb950; }
+    .yellow { color: #f7c948; }
+    .blue   { color: #58a6ff; }
+    .purple { color: #bc8cff; }
+
+    /* Progress bar */
+    .progress-section {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+    }
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      margin-bottom: 8px;
+    }
+    .progress-bar-bg {
+      background: #21262d;
+      border-radius: 20px;
+      height: 12px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 20px;
+      background: linear-gradient(90deg, #238636, #3fb950);
+      transition: width 0.4s ease;
+    }
+    .progress-bar-fill.yellow {
+      background: linear-gradient(90deg, #d29922, #f7c948);
+    }
+    .progress-bar-fill.purple {
+      background: linear-gradient(90deg, #6e40c9, #bc8cff);
+    }
+
+    .you-are-here {
+      display: inline-block;
+      background: #f7c948;
+      color: #000;
+      font-weight: 700;
+      font-size: 0.72rem;
+      padding: 2px 9px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Utilitics — Azure Databricks Data Sharing POC</h1>
+<p class="subtitle">Architecture Overview &amp; Development Roadmap &nbsp;·&nbsp; Last updated: 2026-03-19 (Section 14 + Runtime Flag complete)</p>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="dot dot-done"></div> Completed</div>
+  <div class="legend-item"><div class="dot dot-now"></div> Current Position</div>
+  <div class="legend-item"><div class="dot dot-next"></div> Next Phase</div>
+  <div class="legend-item"><div class="dot dot-future"></div> Future / Azure</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     STATS ROW
+     ───────────────────────────────────────────── -->
+<div class="status-grid">
+  <div class="status-card">
+    <div class="card-title green">Records Processed</div>
+    <div class="card-val green">266,000</div>
+    <div class="card-sub">per Utilitics pipeline run  ·  Bronze + Silver + Gold</div>
+  </div>
+  <div class="status-card">
+    <div class="card-title green">Validation Checks</div>
+    <div class="card-val green">19 / 19</div>
+    <div class="card-sub">All PASS  ·  Quality gates enforced</div>
+  </div>
+  <div class="status-card">
+    <div class="card-title green">Pipeline Steps</div>
+    <div class="card-val green">5 / 5</div>
+    <div class="card-sub">Gen → Bronze → Silver → Gold → Validate</div>
+  </div>
+  <div class="status-card">
+    <div class="card-title yellow">Overall Progress</div>
+    <div class="card-val yellow">Part 1 Done</div>
+    <div class="card-sub">Local Medallion + Delta Sharing complete</div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     OVERALL ROADMAP
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Overall Project Roadmap
+  <span class="badge badge-you">YOU ARE HERE ↓</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph P1["PART 1 — Utilitics Local Development ✅"]
+        direction TB
+        A1["🗄️ Data Sources\n(Parquet + SQLite)"]
+        A2["🥉 Bronze Layer\n(Delta Lake)"]
+        A3["🥈 Silver Layer\n(Delta Lake)"]
+        A4["🥇 Gold Layer\n(Delta Lake)"]
+        A5["🔗 Delta Sharing\n(Option A + B)"]
+        A6["✅ Validation\n19/19 Checks"]
+        A1-->A2-->A3-->A4-->A5
+        A4-->A6
+    end
+
+    subgraph P1C["PART 1 — Databricks Port ✅"]
+        direction TB
+        C1["📓 7 Databricks Notebooks\nnotebooks/databricks/"]
+        C2["🚦 run.py\nRUNTIME flag\n--local  --cloud"]
+        C1---C2
+    end
+
+    subgraph P1B["PART 1 — Utilitics Automation ✅"]
+        direction TB
+        B1["📱 WhatsApp\n(Twilio)"]
+        B2["🤖 Claude AI\n(Tool Use)"]
+        B3["⚡ FastAPI\nWebhook Server"]
+        B4["▶️ Pipeline\nOrchestrator"]
+        B1-->B2-->B3-->B4
+    end
+
+    subgraph P2["PART 2 — Utilitics Azure Cloud 🟣"]
+        direction TB
+        D1["☁️ ADLS Gen2\n(Data Lake)"]
+        D2["🏭 Azure Data Factory\n(Orchestration)"]
+        D3["🔷 Azure Databricks\n(Spark Clusters)"]
+        D4["🗃️ Azure SQL\n(replaces SQLite)"]
+        D5["🌐 Databricks\nDelta Sharing"]
+        D1-->D2-->D3-->D4
+        D3-->D5
+    end
+
+    P1  -->|"Done ✅"| P1C
+    P1C -->|"Next →"| P1B
+    P1B -->|"Migrate →"| P2
+    P1C -->|"Migrate →"| P2
+
+    style P1  fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style P1C fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style P1B fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style P2  fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     PART 1 DETAILED — MEDALLION PIPELINE
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Utilitics — Part 1 Medallion Pipeline (Complete)
+  <span class="badge badge-done">DONE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart TD
+    subgraph SRC["DATA SOURCES"]
+        TS["📊 Smart Meter Readings\nParquet files  ·  data_source: UTILITICS_METERING\n500 meters × 7 days × 48 reads\n168,000 records"]
+        SS["🗄️ Network Asset Snapshot\nSQLite DB — assets.db\n2,000 assets × 7 snapshots\n14,000 records"]
+        FS["📁 ERM Demand Forecasts\nParquet files\n500 forecasts × 168 hours\n84,000 records"]
+    end
+
+    subgraph GEN["01_generate_data.py"]
+        G1["Generate synthetic data\nRealistic UK patterns\nSQLAlchemy → SQLite\nParquet writes"]
+    end
+
+    subgraph BRZ["BRONZE LAYER — Delta Lake"]
+        BT["bronze/timeseries\n168,000 rows\ndata_source: UTILITICS_METERING\nPartitioned by date"]
+        BS["bronze/snapshot\n14,000 rows\nRead via Spark JDBC\nDates + Doubles cast"]
+        BF["bronze/files\n84,000 rows\nRaw + metadata cols\nPartitioned by date"]
+    end
+
+    subgraph ING["02_ingest_bronze.py"]
+        I1["Add metadata columns\n_ingestion_timestamp\n_source_file\n_ingestion_date"]
+        I2["SQLite JDBC\n+ org.xerial:sqlite-jdbc\nDate/Float type casts"]
+    end
+
+    subgraph SLV["SILVER LAYER — Delta Lake"]
+        ST["silver/timeseries\n168,000 rows\nDedup + range valid\nDerived: hour/is_peak"]
+        SS2["silver/snapshot\n14,000 rows\nDedup + coord valid\nDerived: needs_maint"]
+        SF["silver/files\n84,000 rows\nDedup + bound check\nDerived: confidence_width"]
+    end
+
+    subgraph TRN["03_transform_silver.py"]
+        T1["Dedup by business key\nRange validation\nDerived columns\nPartition by biz date"]
+    end
+
+    subgraph GLD["GOLD LAYER — Delta Lake"]
+        G2["daily_meter_summary\n3,500 rows\nPeak vs off-peak KWh\nCompleteness %"]
+        G3["regional_demand\n840 rows\nAggregate by region/day\nActive meter count"]
+        G4["network_assets\n2,000 rows\nLatest snapshot per asset\nMaint flag"]
+        G5["forecast_summary\n420 rows\nAvg/min/max demand\nBy region + scenario"]
+    end
+
+    subgraph AGG["04_aggregate_gold.py"]
+        A1x["Business aggregations\n4 analytical tables\nSCD logic for assets\nConfidence avg"]
+    end
+
+    subgraph VAL["05_validate.py"]
+        V1["19 checks:\n• Bronze→Silver drop rates\n• Gold record counts\n• Null / range / logic rules\n• UK coord bounds\n• SQLite source checks\n• Delta table health"]
+    end
+
+    subgraph SHR["DELTA SHARING"]
+        OA["Option A\nsimulate_sharing.py\nPython + Pandas\nNo extra setup"]
+        OB["Option B\nOSS Delta Sharing Server\nReal HTTP protocol\nJAR + recipient profile"]
+    end
+
+    TS & SS & FS --> GEN --> BRZ
+    BRZ --> ING
+    ING --> SLV
+    SLV --> TRN
+    TRN --> GLD
+    GLD --> AGG
+    AGG --> VAL
+    GLD --> SHR
+
+    style SRC fill:#111,stroke:#555,color:#ccc
+    style GEN fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style BRZ fill:#1a1000,stroke:#d29922,color:#e3b341
+    style ING fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style SLV fill:#001a1a,stroke:#1e8fa8,color:#7dcfda
+    style TRN fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style GLD fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style AGG fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style VAL fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style SHR fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     DELTA SHARING DETAIL
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Utilitics Delta Sharing — Both Options
+  <span class="badge badge-done">DONE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph GOLD["Gold Tables (Utilitics — Provider)"]
+        G1["daily_meter_summary"]
+        G2["regional_demand"]
+        G3["network_assets"]
+        G4["forecast_summary"]
+    end
+
+    subgraph LAUNCHER["run_sharing.py\n(Interactive Launcher)"]
+        L["Choose A or B"]
+    end
+
+    subgraph OA["Option A — Python Simulation"]
+        A1["simulate_sharing.py\nUtilitics PySpark reads Gold\nVendor Pandas analysis\nVendor writes back to Utilitics"]
+    end
+
+    subgraph OB["Option B — OSS Server"]
+        direction TB
+        S["Delta Sharing Server\nJAR on localhost:8080\nserver_config.yaml\nBearer token auth"]
+        C["consume_shared_data.py\ndelta_sharing Python client\nrecipient_profile.json\nReal HTTP protocol"]
+        S-->C
+    end
+
+    GOLD --> LAUNCHER
+    LAUNCHER -->|"A"| OA
+    LAUNCHER -->|"B"| OB
+
+    style GOLD  fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style OA    fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style OB    fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style LAUNCHER fill:#111,stroke:#555,color:#ccc
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     SECTION 14 — RUNTIME FLAG
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Section 14 — Runtime Flag: Local vs Databricks
+  <span class="badge badge-done">DONE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart TD
+    subgraph ENTRY["Single Entry Point"]
+        RUN["🚦 python run.py\n\n--local   → force local\n--cloud   → force Databricks\n--config  → show settings\n--status  → last run status"]
+    end
+
+    subgraph CFG["config/pipeline_config.py"]
+        FLAG["RUNTIME = 'local'\nor\nRUNTIME = 'databricks'\n\nChange once — stays persistent"]
+    end
+
+    RUN -->|"reads flag\n(overridden by --local/--cloud)"| FLAG
+
+    subgraph LOCAL["RUNTIME = 'local'  ✅"]
+        direction TB
+        L1["notebooks/run_pipeline.py\n(subprocess orchestrator)"]
+        L2["01_generate_data.py\n→ Parquet + SQLite"]
+        L3["02_ingest_bronze.py\n→ Spark JDBC SQLite"]
+        L4["03_transform_silver.py"]
+        L5["04_aggregate_gold.py"]
+        L6["05_validate.py\n19/19 checks"]
+        L1-->L2-->L3-->L4-->L5-->L6
+    end
+
+    subgraph CLOUD["RUNTIME = 'databricks'  ✅"]
+        direction TB
+        D1["Databricks REST API\nPOST /api/2.1/jobs/runs/submit\nBearer token auth"]
+        D2["notebooks/databricks/run_pipeline\n(dbutils.notebook.run)"]
+        D3["00_config → DBFS paths\n01 → 05 notebooks\ndisplay() + no SparkSession"]
+        D4["Poll status every 15s\nuntil TERMINATED"]
+        D5["dbutils.notebook.exit\n'SUCCESS' / 'FAILED'"]
+        D1-->D2-->D3-->D4-->D5
+    end
+
+    subgraph STORAGE["Data Storage"]
+        S1["LOCAL\nlake/ on C: drive\nSQLite assets.db"]
+        S2["DATABRICKS\ndbfs:/utilitics/lake/\nCSV on DBFS"]
+    end
+
+    FLAG -->|"local"| LOCAL
+    FLAG -->|"databricks"| CLOUD
+    LOCAL --> S1
+    CLOUD --> S2
+
+    style ENTRY fill:#111,stroke:#555,color:#ccc
+    style CFG   fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style LOCAL fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style CLOUD fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style STORAGE fill:#1a1000,stroke:#d29922,color:#e3b341
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     NEXT — CHATOPS
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Utilitics ChatOps Pipeline Control (WhatsApp + Claude AI)
+  <span class="badge badge-done">DONE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph USER["User"]
+        W["📱 WhatsApp\nMessage"]
+    end
+
+    subgraph TWILIO["Twilio"]
+        TW["Webhook\nHTTP POST"]
+    end
+
+    subgraph FASTAPI["Utilitics FastAPI Server\nwebhook_server.py"]
+        F1["POST /webhook\nParse message"]
+        F2["Build prompt\nfor Claude"]
+    end
+
+    subgraph CLAUDE["Claude AI\n(Anthropic API)"]
+        CL["Tool Use:\n• run_pipeline\n• run_step\n• get_status\n• run_sharing"]
+    end
+
+    subgraph PIPELINE["Utilitics Pipeline Scripts"]
+        P1["run_pipeline.py"]
+        P2["01_generate_data.py"]
+        P3["02_ingest_bronze.py"]
+        P4["03_transform_silver.py"]
+        P5["04_aggregate_gold.py"]
+        P6["05_validate.py"]
+        P7["run_sharing.py"]
+    end
+
+    subgraph REPLY["Response"]
+        R["📱 WhatsApp Reply\nStatus + metrics"]
+    end
+
+    W --> TW --> F1 --> F2 --> CL
+    CL -->|"tool call"| P1 & P2 & P3 & P4 & P5 & P6 & P7
+    P1 & P2 & P3 & P4 & P5 & P6 & P7 -->|"stdout result"| CL
+    CL -->|"summary"| F2
+    F2 --> TWILIO --> R
+
+    style USER   fill:#111,stroke:#555
+    style TWILIO fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style FASTAPI fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style CLAUDE  fill:#1a1f0d,stroke:#4caf50,color:#81c784
+    style PIPELINE fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style REPLY  fill:#111,stroke:#555
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     FUTURE — AZURE MIGRATION
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  Utilitics — Part 2 Azure Cloud Migration
+  <span class="badge badge-future">FUTURE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart TD
+    subgraph INGEST["Utilitics Data Ingestion"]
+        I1["Azure IoT Hub\n(Smart Meters)"]
+        I2["Azure SQL DB\n(replaces SQLite)"]
+        I3["Azure Blob Storage\n(ERM Forecasts)"]
+    end
+
+    subgraph ADF["Azure Data Factory\n(Orchestration — replaces run_pipeline.py)"]
+        P1["Copy Activity\n→ ADLS Gen2 Raw"]
+        P2["Databricks Notebook Activity\nBronze Ingestion"]
+        P3["Databricks Notebook Activity\nSilver Transform"]
+        P4["Databricks Notebook Activity\nGold Aggregation"]
+        P5["Databricks Notebook Activity\nValidation"]
+        P1-->P2-->P3-->P4-->P5
+    end
+
+    subgraph ADLS["ADLS Gen2\n(Data Lake Storage)"]
+        L1["raw/"]
+        L2["bronze/"]
+        L3["silver/"]
+        L4["gold/"]
+    end
+
+    subgraph DBX["Azure Databricks\n(Spark Clusters)"]
+        D1["notebooks/databricks/\n01 → 05 ported scripts\n3 changes per script:\n• DBFS paths\n• dbutils.widgets\n• display()"]
+    end
+
+    subgraph SHARE["Databricks Delta Sharing\n(replaces OSS server)"]
+        S1["Unity Catalog\nShare + Recipient\nToken-based access"]
+    end
+
+    subgraph CHATOPS["Utilitics ChatOps (unchanged)"]
+        C1["WhatsApp → Twilio\n→ Azure Function\n→ Claude AI\n→ ADF trigger"]
+    end
+
+    INGEST --> ADF
+    ADF <--> ADLS
+    ADF --> DBX
+    DBX --> SHARE
+    CHATOPS --> ADF
+
+    style INGEST  fill:#111,stroke:#555,color:#ccc
+    style ADF     fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style ADLS    fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style DBX     fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style SHARE   fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style CHATOPS fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     PROGRESS BARS
+     ───────────────────────────────────────────── -->
+<div class="section-title">Progress Tracker</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — Local Medallion Pipeline</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — Delta Sharing (Opt A + B)</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — Databricks Notebook Port + Runtime Flag (Section 14)</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — ChatOps Automation (WhatsApp + Claude AI)</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 2 — Azure Cloud Migration</span><span style="color:#bc8cff">0%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill purple" style="width:0%"></div></div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     FILE MAP
+     ───────────────────────────────────────────── -->
+<div class="section-title">Project File Map</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart TD
+    ROOT["📁 C:/Projects/databricks-poc/  (Utilitics POC)"]
+    RUN["🚦 run.py ✅\nUnified launcher\n--local / --cloud / --config / --status"]
+
+    subgraph CFG["config/"]
+        C1["pipeline_config.py ✅\nPaths + DB_CONFIG + QUALITY\nRUNTIME flag\nDATABRICKS_CONFIG"]
+        C2["spark_config.py ✅\nSparkSession factory\nextra_packages support"]
+    end
+
+    subgraph NB["notebooks/"]
+        N1["01_generate_data.py ✅"]
+        N2["02_ingest_bronze.py ✅"]
+        N3["03_transform_silver.py ✅"]
+        N4["04_aggregate_gold.py ✅"]
+        N5["05_validate.py ✅"]
+        N6["run_pipeline.py ✅"]
+        subgraph DBX["databricks/ ✅  (Section 14)"]
+            DB0["00_config.py\nDBFS paths"]
+            DB1["01_generate_data.py"]
+            DB2["02_ingest_bronze.py"]
+            DB3["03_transform_silver.py"]
+            DB4["04_aggregate_gold.py"]
+            DB5["05_validate.py"]
+            DB6["run_pipeline.py\ndbutils.notebook.run"]
+        end
+    end
+
+    subgraph DS["delta_sharing/"]
+        D1["run_sharing.py ✅"]
+        D2["simulate_sharing.py ✅ (Option A)"]
+        D3["consume_shared_data.py ✅ (Option B)"]
+        D4["server_config.yaml ✅"]
+        D5["recipient_profile.json ✅"]
+        D6["delta-sharing-server.jar (download needed)"]
+    end
+
+    subgraph LK["lake/  (data store)"]
+        L1["raw/timeseries + files"]
+        L2["sources/assets.db (SQLite) ✅"]
+        L3["bronze/ silver/ gold/  (Delta)"]
+    end
+
+    subgraph AUTO["automation/  ✅"]
+        A1["webhook_server.py ✅\nFastAPI + Twilio webhook\nngrok expose"]
+        A2["claude_tools.py ✅\nClaude tool schemas\nTool dispatcher"]
+        A3["pipeline_runner.py ✅\nSubprocess wrapper\nState persistence"]
+    end
+
+    ROOT --> RUN & CFG & NB & DS & LK & AUTO
+
+    style CFG  fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style NB   fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style DBX  fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style DS   fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style LK   fill:#1a1000,stroke:#d29922,color:#e3b341
+    style AUTO fill:#111,stroke:#444,color:#888
+    style RUN  fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
+     TECH STACK
+     ───────────────────────────────────────────── -->
+<div class="section-title">Technology Stack</div>
+
+<div class="status-grid">
+  <div class="status-card">
+    <div class="card-title green">Core Engine</div>
+    <div class="card-sub" style="font-size:0.85rem; color:#ccc; line-height:1.8">
+      PySpark 3.5.1<br>
+      Delta Lake 3.1.0<br>
+      Python 3.11 (venv)<br>
+      SQLAlchemy 2.0 + SQLite
+    </div>
+  </div>
+  <div class="status-card">
+    <div class="card-title green">Sharing Layer</div>
+    <div class="card-sub" style="font-size:0.85rem; color:#ccc; line-height:1.8">
+      delta-sharing Python client<br>
+      OSS Delta Sharing Server JAR<br>
+      HTTP bearer token auth<br>
+      Pandas DataFrames (vendor)
+    </div>
+  </div>
+  <div class="status-card">
+    <div class="card-title blue">Automation (Next)</div>
+    <div class="card-sub" style="font-size:0.85rem; color:#ccc; line-height:1.8">
+      FastAPI (webhook server)<br>
+      Twilio WhatsApp API<br>
+      Anthropic Claude API (tool use)<br>
+      subprocess orchestration
+    </div>
+  </div>
+  <div class="status-card">
+    <div class="card-title purple">Azure (Part 2)</div>
+    <div class="card-sub" style="font-size:0.85rem; color:#ccc; line-height:1.8">
+      Azure Databricks<br>
+      Azure Data Factory<br>
+      ADLS Gen2 + Azure SQL<br>
+      Unity Catalog Delta Sharing
+    </div>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1f6feb',
+      primaryTextColor: '#e0e0e0',
+      primaryBorderColor: '#388bfd',
+      lineColor: '#58a6ff',
+      secondaryColor: '#238636',
+      tertiaryColor: '#6e40c9',
+      edgeLabelBackground: '#161b22',
+      clusterBkg: '#0d1117',
+      clusterBorder: '#30363d',
+      titleColor: '#e0e0e0',
+      nodeTextColor: '#e0e0e0',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 20,
+      nodeSpacing: 50,
+      rankSpacing: 60,
+    }
+  });
+</script>
+
+</body>
+</html>

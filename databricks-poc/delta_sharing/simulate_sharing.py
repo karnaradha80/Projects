@@ -20,13 +20,13 @@ from config.pipeline_config import get_path
 import pandas as pd
 
 # ============================================================
-# PROVIDER SIDE (Your organisation: SPENW)
+# PROVIDER SIDE (Your organisation: Utilitics)
 # ============================================================
 print("=" * 60)
 print("  DELTA SHARING SIMULATION  —  Option A (Python)")
 print("=" * 60)
 
-print("\n--- PROVIDER SIDE (SPENW) ---")
+print("\n--- PROVIDER SIDE (Utilitics) ---")
 print("  Sharing Gold tables with vendor...")
 
 spark = get_spark_session("DeltaSharingSimulation")
@@ -101,7 +101,7 @@ print(f"      {maintenance_needed}/{total_assets} assets need maintenance "
 # ============================================================
 # BI-DIRECTIONAL: Vendor sends data back
 # ============================================================
-print("\n--- BI-DIRECTIONAL SHARING (Vendor → SPENW) ---")
+print("\n--- BI-DIRECTIONAL SHARING (Vendor → Utilitics) ---")
 print("  Vendor creates response data...")
 
 vendor_response = spark.createDataFrame([

@@ -203,7 +203,7 @@ Pick the cheapest region closest to you:
 | East US | Virginia | $0.134/hr | Cheapest overall |
 | Central India | Pune | $0.121/hr | Cheapest if latency is OK |
 
-> **Recommendation:** Use **UK South** for lowest latency (matching the SoW's SPENW context), or **East US** for lowest price.
+> **Recommendation:** Use **UK South** for lowest latency (matching the SoW's Utilitics context), or **East US** for lowest price.
 
 ### 4.4 Create Resource Group
 
@@ -807,7 +807,7 @@ for meter_idx in range(500):
             else: hour_factor = 0.5
             value = round(base_consumption * hour_factor * random.uniform(0.8, 1.2), 4)
             quality = random.choices(quality_codes, quality_weights)[0]
-            ts_rows.append((meter_id, ts, value, quality, m_type, region, "SPENW_METERING"))
+            ts_rows.append((meter_id, ts, value, quality, m_type, region, "UTILITICS_METERING"))
 
 ts_df = spark.createDataFrame(ts_rows, schema_ts)
 ts_df.write.mode("overwrite").parquet(RAW_TIMESERIES)
@@ -1159,7 +1159,7 @@ SELECT 'gold.forecast_summary', count(*) FROM data_sharing_poc.gold.forecast_sum
 ```sql
 -- Create a share containing Gold tables for the vendor
 CREATE SHARE IF NOT EXISTS vendor_data_share
-  COMMENT 'SPENW data share for 3rd party vendor - POC';
+  COMMENT 'Utilitics data share for 3rd party vendor - POC';
 
 -- Add Gold tables to the share
 ALTER SHARE vendor_data_share ADD TABLE data_sharing_poc.gold.daily_meter_summary;
@@ -1271,7 +1271,7 @@ print("\n=== Delta Sharing: SUCCESS ===")
 print("Vendor can access all 4 Gold tables via open protocol!")
 ```
 
-### 11.6 Bi-Directional Sharing (Vendor → SPENW)
+### 11.6 Bi-Directional Sharing (Vendor → Utilitics)
 
 ```sql
 -- Create vendor output table

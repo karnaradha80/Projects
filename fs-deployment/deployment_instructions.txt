@@ -1,0 +1,26 @@
+I have created a new folder called deployment under @faster_staging/  Use that to place all files related to deployment,like the docker compose , seed script etc. 
+I already have a docker image for oracle  gvenzl/oracle-xe. Create docker compose yaml for starting the container. 
+I want the password to be complex, because I want to connect from outside world and no cyber risks
+I want yout to study all the tables, sequences which we are using in the packages under @fasterstging/packages for D0010 and D0150.
+The starting point is FUNCTION PRC_PROCESS_FILE(
+    p_file_content IN CLOB,
+    p_flow_type    IN VARCHAR2,
+    p_file_name    IN VARCHAR2,
+    p_run_num      IN NUMBER
+  ) RETURN VARCHAR2; in @faster_staging/packages/PKG_DTC_PROCESSING file.
+The table structure for MDQ_ETL_VALIDATION_CONFIG can be found in @faster_staging/tables/MDQ_ETL_VALIDATION_CONFIG.SQL
+All other tables, sequences etc. need to be taken from @db_code/ directory. Do not modify the structure of these tables as they are existing ones in Production.
+Create a Create script for tables. sequences, packages used and place them in @deployment directory
+No start the container, run the create script and create the schema
+
+-- Seed Data insertion
+For MDQ_APP_NTWKAREA_REF table, data is as below. Insert them:
+|NTA_MPAN_CD|NTA_TERM|NTA_SHORT_TERM|NTA_NC1_BASE_DIR|NTA_EDF_REG_ADDR1|NTA_EDF_REG_ADDR2|NTA_EDF_REG_ADDR3|NTA_EDF_REG_ADDR4|NTA_EDF_REG_ADDR5|NTA_EDF_REG_ADDR6|NTA_EDF_REG_ADDR7|NTA_EDF_REG_ADDR8|NTA_EDF_REG_ADDR9|NTA_EDF_REG_PCODE|NTA_EDF_REG_CO_NO|NTA_EDF_REG_CO_NAME|
+|-----------|--------|--------------|----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|-------------------|
+|19|SEEB|SPN|/MAVISNC1/SPN NC1 Forms|||||Newington House||237 Southwark Bridge Road|London||SE1 6NP|03043097|South Eastern Power Networks plc|
+|28|EDFI|IDN|/MAVISNC1/IDN NC1 Forms|||||Newington House||237 Southwark Bridge Road|London||SE1 6NP|06489447|UK Power Networks (IDNO) Ltd|
+|10|EELC|EPN|/MAVISNC1/EPN NC1 Forms|||||Newington House||237 Southwark Bridge Road|London||SE1 6NP|02366906|Eastern Power Networks plc|
+|12|LOND|LPN|/MAVISNC1/LPN NC1 Forms|||||Newington House||237 Southwark Bridge Road|London||SE1 6NP|03929195|London Power Networks plc|
+For MDQ_ETL_VALIDATION_CONFIG, use @faster_staging/data/insert_validation_configs_clob.sql
+
+Spin multiple agents to handle these instructions so that the context window doesn't run out.

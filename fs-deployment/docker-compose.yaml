@@ -1,0 +1,45 @@
+services:
+  oracle-xe:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: mavis-oracle-xe
+    ports:
+      - "1521:1521"
+      - "5500:5500"
+    environment:
+      # Complex password for external access security
+      ORACLE_PASSWORD: "Mav1sDb2026Xpr3ss"
+      APP_USER: MDQA_OWNER
+      APP_USER_PASSWORD: "MdqA_0wn3r2026"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - .:/opt/oracle/scripts/startup
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    network_mode: bridge
+
+volumes:
+  oracle-data:
+    driver: local
+
+# Connection Details:
+# ==================
+# Host: localhost (or container IP)
+# Port: 1521
+# Service Name: XEPDB1
+# SYS Password: Mav1sDb2026Xpr3ss
+# App User: MDQA_OWNER
+# App Password: MdqA_0wn3r2026
+#
+# SQL*Plus connection (from host):
+#   sqlplus MDQA_OWNER/MdqA_0wn3r2026@localhost:1521/XEPDB1
+#
+# SQL*Plus connection (inside container):
+#   sqlplus MDQA_OWNER/MdqA_0wn3r2026@//localhost/XEPDB1
+#
+# JDBC URL:
+#   jdbc:oracle:thin:@localhost:1521/XEPDB1
