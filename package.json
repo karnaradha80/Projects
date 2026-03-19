@@ -1,0 +1,25 @@
+{
+  "name": "projects",
+  "version": "1.0.0",
+  "description": "",
+  "main": "claude.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/karnaradha80/projects.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/karnaradha80/projects/issues"
+  },
+  "homepage": "https://github.com/karnaradha80/projects#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0"
+  }
+}

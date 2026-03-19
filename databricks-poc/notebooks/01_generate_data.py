@@ -21,12 +21,30 @@ import sys
 import os
 import time
 import random
+import shutil
 from datetime import datetime, timedelta
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from config.spark_config import get_spark_session
-from config.pipeline_config import get_path, DATA_CONFIG
+from config.pipeline_config import get_path, get_db_config, DATA_CONFIG
+
+
+def clear_directory_contents(path):
+    """
+    Delete all files and subdirectories INSIDE a directory without
+    deleting the directory itself. This avoids Windows ACL issues where
+    pre-created directories from 'mkdir' cannot be removed, but their
+    contents can be.
+    """
+    if not os.path.exists(path):
+        return
+    for item in os.listdir(path):
+        item_path = os.path.join(path, item)
+        if os.path.isfile(item_path):
+            os.remove(item_path)
+        elif os.path.isdir(item_path):
+            shutil.rmtree(item_path)
 
 from pyspark.sql.types import *
 
@@ -115,7 +133,8 @@ for meter_idx in range(num_meters):
             ))
 
 ts_df = spark.createDataFrame(ts_rows, schema_ts)
-ts_df.write.mode("overwrite").parquet(get_path("raw_timeseries"))
+clear_directory_contents(get_path("raw_timeseries"))
+ts_df.write.mode("append").parquet(get_path("raw_timeseries"))
 ts_count = ts_df.count()
 print(f"      Generated: {ts_count:,} records")
 
@@ -181,9 +200,26 @@ for snap_day in range(num_snapshots):
         ))
 
 snap_df = spark.createDataFrame(snap_rows, schema_snap)
-snap_df.write.mode("overwrite").parquet(get_path("raw_snapshot"))
 snap_count = snap_df.count()
-print(f"      Generated: {snap_count:,} records")
+
+# Write snapshot to SQLite via pandas (simulates an operational DB source)
+db_cfg = get_db_config()
+db_dir = os.path.dirname(db_cfg["sqlite_path"])
+os.makedirs(db_dir, exist_ok=True)
+
+import pandas as pd
+from sqlalchemy import create_engine
+
+snap_pandas = snap_df.toPandas()
+# Convert date columns (Spark DateType → Python date) to strings for SQLite
+snap_pandas["snapshot_date"] = snap_pandas["snapshot_date"].astype(str)
+snap_pandas["last_maintenance_date"] = snap_pandas["last_maintenance_date"].astype(str)
+
+engine = create_engine(f"sqlite:///{db_cfg['sqlite_path']}")
+snap_pandas.to_sql(db_cfg["table_name"], engine, if_exists="replace", index=False)
+engine.dispose()
+
+print(f"      Generated: {snap_count:,} records  →  SQLite: {db_cfg['sqlite_path']}")
 
 # ============================================================
 # 3. FILE DATA (ERM Demand Forecasts)
@@ -255,7 +291,8 @@ for fc_idx in range(num_forecasts):
         ))
 
 file_df = spark.createDataFrame(file_rows, schema_file)
-file_df.write.mode("overwrite").parquet(get_path("raw_files"))
+clear_directory_contents(get_path("raw_files"))
+file_df.write.mode("append").parquet(get_path("raw_files"))
 file_count = file_df.count()
 print(f"      Generated: {file_count:,} records")
 
@@ -274,7 +311,8 @@ print(f"  File Data:      {file_count:>10,} records")
 print(f"  {'─' * 35}")
 print(f"  Total:          {total_records:>10,} records")
 print(f"  Elapsed time:   {elapsed} seconds")
-print(f"  Data location:  {os.path.dirname(get_path('raw_timeseries'))}")
+print(f"  Raw location:   {os.path.dirname(get_path('raw_timeseries'))}")
+print(f"  SQLite DB:      {get_db_config()['sqlite_path']}")
 print("=" * 60)
 
 spark.stop()

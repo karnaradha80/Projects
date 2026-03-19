@@ -1,0 +1,31 @@
+# Delta Sharing Server Configuration (Local - Option B)
+# ======================================================
+# Start the server with:
+#   java -jar delta_sharing/delta-sharing-server.jar --config delta_sharing/server_config.yaml
+#
+# Download the JAR from:
+#   https://github.com/delta-io/delta-sharing/releases
+#   File: delta-sharing-server-x.x.x.zip  →  extract the .jar
+
+version: 1
+shares:
+  - name: "vendor_data_share"
+    schemas:
+      - name: "gold"
+        tables:
+          - name: "daily_meter_summary"
+            location: "C:/Projects/databricks-poc/lake/gold/daily_meter_summary"
+          - name: "regional_demand"
+            location: "C:/Projects/databricks-poc/lake/gold/regional_demand"
+          - name: "network_assets"
+            location: "C:/Projects/databricks-poc/lake/gold/network_assets"
+          - name: "forecast_summary"
+            location: "C:/Projects/databricks-poc/lake/gold/forecast_summary"
+
+# Server settings
+host: "localhost"
+port: 8080
+endpoint: "/delta-sharing"
+
+authorization:
+  bearerToken: "poc-local-token-12345"

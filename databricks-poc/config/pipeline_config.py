@@ -14,7 +14,7 @@ MODE = "local"
 # ============================================================
 # Base paths
 # ============================================================
-LOCAL_BASE = "C:/Projects/databricks-poc/data"
+LOCAL_BASE = "C:/Projects/databricks-poc/lake"
 AZURE_BASE_RAW = "/mnt/raw-data"
 AZURE_BASE_PROCESSED = "/mnt/processed-data"
 
@@ -23,9 +23,8 @@ AZURE_BASE_PROCESSED = "/mnt/processed-data"
 # ============================================================
 PATHS = {
     "local": {
-        # Raw data (source)
+        # Raw data (source) — snapshot is in SQLite, not here
         "raw_timeseries": f"{LOCAL_BASE}/raw/timeseries",
-        "raw_snapshot": f"{LOCAL_BASE}/raw/snapshot",
         "raw_files": f"{LOCAL_BASE}/raw/files",
 
         # Bronze layer
@@ -46,7 +45,6 @@ PATHS = {
     },
     "azure": {
         "raw_timeseries": f"{AZURE_BASE_RAW}/timeseries",
-        "raw_snapshot": f"{AZURE_BASE_RAW}/snapshot",
         "raw_files": f"{AZURE_BASE_RAW}/files",
 
         "bronze_timeseries": f"{AZURE_BASE_PROCESSED}/bronze/timeseries",
@@ -61,6 +59,28 @@ PATHS = {
         "gold_regional_demand": f"{AZURE_BASE_PROCESSED}/gold/regional_demand",
         "gold_network_assets": f"{AZURE_BASE_PROCESSED}/gold/network_assets",
         "gold_forecast_summary": f"{AZURE_BASE_PROCESSED}/gold/forecast_summary",
+    }
+}
+
+# ============================================================
+# Database configuration (snapshot source)
+# Local:  SQLite   — zero-setup, maps to Azure SQL in Part 2
+# Azure:  Azure SQL — same JDBC pattern, just a different URL
+# ============================================================
+DB_CONFIG = {
+    "local": {
+        "sqlite_path": f"{LOCAL_BASE}/sources/assets.db",
+        "table_name": "network_asset_snapshot",
+        "jdbc_url": f"jdbc:sqlite:{LOCAL_BASE}/sources/assets.db",
+        "jdbc_driver": "org.sqlite.JDBC",
+        "jdbc_package": "org.xerial:sqlite-jdbc:3.44.1.0",
+    },
+    "azure": {
+        # Populated in Part 2 — same JDBC pattern, different driver
+        "table_name": "network_asset_snapshot",
+        "jdbc_url": "jdbc:sqlserver://<server>.database.windows.net:1433;database=<db>",
+        "jdbc_driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+        "jdbc_package": None,   # Driver pre-installed in Databricks runtime
     }
 }
 
@@ -101,3 +121,8 @@ def get_path(key):
 def get_all_paths():
     """Get all paths for current MODE."""
     return PATHS[MODE]
+
+
+def get_db_config():
+    """Get database config for current MODE."""
+    return DB_CONFIG[MODE]
