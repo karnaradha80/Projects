@@ -732,5 +732,392 @@ AZURE ARCHITECTURE (Part 2):
   Automation: Azure Functions (webhook) + same Claude AI + same WhatsApp
 
 ================================================================================
+SESSION 3 — 2026-03-20
+================================================================================
+
+--------------------------------------------------------------------------------
+EXCHANGE 16 — Power BI Integration
+--------------------------------------------------------------------------------
+USER: can you incorporate Power BI with this?
+
+DISCUSSION:
+  Two options discussed:
+    Option A (chosen): Power BI Desktop — free, connects directly to Gold Parquet files
+    Option B: Power BI + Databricks connector — requires active cluster, Part 2 territory
+
+USER: can you install Power BI?
+CLAUDE: Cannot install via command line. User installed via Microsoft Store (free).
+
+USER: connect it to gold data
+CLAUDE: Provided step-by-step connection instructions:
+  Home → Get Data → More → Parquet → path: lake/gold/daily_meter_summary
+  Repeat for: regional_demand, network_assets, forecast_summary
+
+NOTE: Power BI had files locked when user tried to clean data — resolved by closing Power BI first.
+
+--------------------------------------------------------------------------------
+EXCHANGE 17 — Full Data Clean + Fresh Pipeline Run
+--------------------------------------------------------------------------------
+USER: can you clean all the data, we will start freshly
+
+CLAUDE: Wiped all lake/ data:
+  rm -rf lake/bronze/* lake/silver/* lake/gold/* lake/raw/* lake/sources/* lake/spark-warehouse/*
+  Also cleared: .last_pipeline_run.txt and .last_dbx_run_id
+
+USER: only generate data
+RESULT: 01_generate_data.py SUCCESS — 266,000 records in 48.1 seconds
+
+USER: run bronze
+RESULT: 02_ingest_bronze.py FAILED
+
+ERROR ENCOUNTERED (new): DeltaInvariantViolationException: DELTA_EXCEED_CHAR_VARCHAR_LIMIT
+  Message: Failed check: (isnull('asset_id) OR (length('asset_id) <= 0))
+  Root cause: SQLite JDBC driver maps TEXT columns to CHAR(0) type
+              Delta Lake enforces the zero-length constraint and rejects any non-empty string
+
+FIX ATTEMPTS:
+  Attempt 1: Cast string columns via CharType/VarcharType check → failed (type string didn't match)
+  Attempt 2: spark.conf.set("spark.sql.charVarcharAsString", "true") → failed (Delta still rejects)
+
+FINAL FIX: Read SQLite via pandas + createDataFrame() instead of JDBC
+  engine = create_engine(f"sqlite:///{cfg['sqlite_path']}")
+  pdf = pd.read_sql_table(cfg["table_name"], engine)
+  raw_df = spark.createDataFrame(pdf)
+  → Bypasses JDBC type mapping entirely — pandas reads TEXT as Python str → Spark StringType
+
+RESULT after fix: 02_ingest_bronze.py SUCCESS
+  timeseries: 168,000 match, snapshot: 14,000 match, file_data: 84,000 match
+  Elapsed: 51.4 seconds
+
+USER: run silver gold and validate
+
+RESULT: All 3 steps SUCCESS
+  Silver: 0.0% drop rate all tables — 37.2 seconds
+  Gold:   6,760 total records — 37.1 seconds
+  Validate: 19/19 checks PASS — 32.3 seconds
+
+--------------------------------------------------------------------------------
+EXCHANGE 18 — WhatsApp Pipeline Run (end-to-end confirmed)
+--------------------------------------------------------------------------------
+USER: run pipeline from WhatsApp
+
+ADDITIONAL FIXES REQUIRED:
+  Fix 1: pipeline_runner.py called run.py which uses capture_output=False
+    → stdout not captured, run.py exits via sys.exit() not propagated correctly
+    → success always False in 0.2 seconds
+    Fix: pipeline_runner.py now calls notebooks/run_pipeline.py directly for local runtime
+
+  Fix 2: get_current_runtime() returned cached module value after set_runtime() edited the file
+    → RUNTIME was stuck on "databricks" even after file was changed to "local"
+    Fix: get_current_runtime() now reads RUNTIME line directly from file via regex (no import)
+
+  Fix 3: FastAPI blocks on 5-minute pipeline run → Twilio times out
+    Fix: Long-running commands dispatched to background threading.Thread(daemon=True)
+         Webhook returns instantly with acknowledgement, result sent as second WhatsApp message
+
+LIVE TEST (2026-03-20):
+  WhatsApp "run pipeline" → received ✅
+  Instant acknowledgement sent ✅
+  Claude called run_pipeline tool ✅
+  Pipeline ran in background (~3.5 min) ✅
+  Result sent back to WhatsApp ✅
+  Full end-to-end confirmed working
+
+--------------------------------------------------------------------------------
+EXCHANGE 19 — PowerPoint One-Pager
+--------------------------------------------------------------------------------
+USER: can you create a one pager PPT for our overall process?
+
+CLAUDE: Installed python-pptx, created create_ppt.py, generated:
+  Utilitics_OnePager.pptx — single 16:9 slide covering:
+    ① Data Sources    ② Medallion Pipeline   ③ Delta Sharing
+    ④ Runtime Flag    ⑤ ChatOps (LIVE ✔)     ⑥ Part 2 Azure
+  Stats bar: 266K records, 19/19 checks, 6 Claude tools, ~5 min pipeline
+  Full tech stack + 6 Windows fixes listed
+
+--------------------------------------------------------------------------------
+EXCHANGE 20 — Word Implementation Document
+--------------------------------------------------------------------------------
+USER: create word document inside docs/ with everything implemented,
+      technologies used, and a full flow diagram
+
+CLAUDE: Installed python-docx, created create_doc.py, generated:
+  docs/Utilitics_Implementation_Guide.docx — 9 sections:
+    1. Project Overview
+    2. End-to-End Flow Diagram (Data Sources → Bronze → Silver → Gold →
+       Delta Sharing → ChatOps → Power BI → Azure)
+    3. What We Implemented (all 9 sections with bullet details)
+    4. Technology Stack (19 technologies, version, purpose, why used)
+    5. Files Created/Modified (24 files)
+    6. Errors and Fixes (14 errors with root causes and fixes)
+    7. Pipeline Execution Results (9 runs)
+    8. Key Architecture Decisions (8 decisions with reasoning)
+    9. Part 2 Azure Migration Plan
+
+================================================================================
+FIXES APPLIED LOG (continued from Session 2)
+================================================================================
+
+FIX 7: DeltaInvariantViolationException CHAR(0) from SQLite JDBC
+  File:    notebooks/02_ingest_bronze.py
+  Change:  Replaced JDBC read with pandas.read_sql_table() + spark.createDataFrame()
+  Reason:  sqlite-jdbc maps TEXT → CHAR(0); Delta rejects non-empty strings
+  Date:    2026-03-20
+
+FIX 8: pipeline_runner.py success always False
+  File:    automation/pipeline_runner.py
+  Change:  run_full_pipeline() now calls notebooks/run_pipeline.py directly
+           (bypasses run.py which uses capture_output=False + sys.exit())
+  Date:    2026-03-20
+
+FIX 9: get_current_runtime() returns cached value
+  File:    automation/pipeline_runner.py
+  Change:  Reads RUNTIME from file via regex instead of importing the module
+  Date:    2026-03-20
+
+FIX 10: FastAPI blocks on long pipeline run
+  File:    automation/webhook_server.py
+  Change:  Long-running commands dispatched to threading.Thread(daemon=True)
+           Webhook returns acknowledgement instantly, result sent asynchronously
+  Date:    2026-03-20
+
+================================================================================
+FILES CREATED LOG (continued from Session 2)
+================================================================================
+
+Utilitics_OnePager.pptx            Created   2026-03-20
+create_ppt.py                      Created   2026-03-20
+docs/Utilitics_Implementation_Guide.docx  Created  2026-03-20
+create_doc.py                      Created   2026-03-20
+
+================================================================================
+PIPELINE EXECUTION RESULTS LOG (continued)
+================================================================================
+
+RUN 9 — Fresh full pipeline (2026-03-20)
+  All 5 steps via individual scripts: SUCCESS
+  Validation: 19/19 checks PASS
+  New fix applied: pandas-based SQLite read in bronze (CHAR(0) fix)
+
+================================================================================
+DECISIONS LOG (continued from Session 2)
+================================================================================
+
+DECISION 9 (2026-03-20):
+  Topic: SQLite snapshot read method
+  Decision: pandas.read_sql_table() + spark.createDataFrame() instead of JDBC
+  Reason: sqlite-jdbc JDBC driver maps TEXT columns to CHAR(0) which Delta rejects
+  Impact: Bypasses JDBC type mapping; pandas reads TEXT as Python str → Spark StringType
+          Same result, more reliable; Azure SQL Part 2 still uses JDBC (no CHAR issue)
+
+DECISION 10 (2026-03-20):
+  Topic: Power BI integration
+  Decision: Power BI Desktop (free) connecting to Gold Parquet files locally
+  Reason: Gold data already in Parquet format; Power BI reads it natively
+  Impact: 4 Gold tables available for dashboards immediately after pipeline run
+
+================================================================================
+SESSION 4 — 2026-03-20 (Part 2: Azure Cloud Migration Begins)
+================================================================================
+
+--------------------------------------------------------------------------------
+EXCHANGE 21 — Start Part 2
+--------------------------------------------------------------------------------
+USER: better we start part 2
+
+CLAUDE: Read docs/Part2_Azure_Cloud_Guide.md (12-phase Azure migration guide).
+  Strategy: Premium Trial (14 days FREE) → Standard tier ($5-8/month)
+  Budget: ~$1 during trial, ~$5-8/month after
+  Prerequisites identified:
+    - Azure Pay-As-You-Go subscription
+    - Azure CLI installed on Windows
+    - Databricks CLI installed
+    - Browser access to Azure Portal
+
+--------------------------------------------------------------------------------
+EXCHANGE 22 — Azure CLI Installation
+--------------------------------------------------------------------------------
+USER: showed winget install Microsoft.AzureCLI output
+
+RESULT: Azure CLI 2.84.0 installed successfully via winget.
+  Issue: 'az' not recognized in same PowerShell session (PATH not updated).
+  Fix: Open new PowerShell window to pick up updated PATH.
+
+  Additional fix needed: PowerShell running from C:\Windows\system32 with
+  restricted PATH. Fixed by adding to PATH for current session:
+    $env:PATH += ";C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin"
+
+  Made permanent via:
+    [System.Environment]::SetEnvironmentVariable("PATH", $env:PATH +
+    ";C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin",
+    [System.EnvironmentVariableTarget]::Machine)
+
+--------------------------------------------------------------------------------
+EXCHANGE 23 — Azure Login
+--------------------------------------------------------------------------------
+USER: az login
+
+RESULT: Login successful.
+  Subscription: Azure subscription 1
+  Subscription ID: d926b212-30a3-4e2b-aa1c-dcec14dd7ad1
+  Tenant: Default Directory
+  User pressed Enter to accept default subscription.
+
+--------------------------------------------------------------------------------
+EXCHANGE 24 — Resource Group + Databricks Workspace Creation
+--------------------------------------------------------------------------------
+Variables set:
+  $REGION = "uksouth"
+  $RG_NAME = "rg-databricks-poc"
+  $WORKSPACE_NAME = "dbw-poc-datasharing"
+  $SUBSCRIPTION_ID = "d926b212-30a3-4e2b-aa1c-dcec14dd7ad1"
+
+Resource providers registered:
+  Microsoft.Databricks, Microsoft.Storage, Microsoft.ManagedIdentity
+
+Resource group created: rg-databricks-poc (uksouth)
+
+Databricks workspace creation:
+  Command: az databricks workspace create --resource-group $RG_NAME
+           --name $WORKSPACE_NAME --location $REGION --sku premium
+           --tags Environment=POC
+  Note: Used single-line command (backtick multiline failed after extension install)
+
+ERROR ENCOUNTERED: HTTPSConnectionPool Failed to resolve 'management.azure.com'
+  [Errno 11001] getaddrinfo failed
+  Root cause: PowerShell running from C:\Windows\system32 with restricted network
+  Fix: Run from a regular (non-system32, non-admin) PowerShell window
+
+STATUS: Workspace creation in progress at end of session.
+
+================================================================================
+FIXES APPLIED LOG (continued from Session 3)
+================================================================================
+
+FIX 11: az not recognized after Azure CLI install
+  Cause:  Same PowerShell session has old PATH cached
+  Fix:    Open new PowerShell window OR add to $env:PATH manually
+  Date:   2026-03-20
+
+FIX 12: az CLI DNS resolution failure (management.azure.com)
+  Cause:  PowerShell running from C:\Windows\system32 with restricted network
+  Fix:    Run from regular PowerShell window (not system32, not as admin)
+  Date:   2026-03-20
+
+================================================================================
+SESSION 4 CONTINUED — 2026-03-20 (Part 2: Azure Setup)
+================================================================================
+
+--------------------------------------------------------------------------------
+EXCHANGE 25 — ADLS Gen2 Storage Setup
+--------------------------------------------------------------------------------
+Storage account created: stpocadls4417 (UK South, Standard LRS, HNS enabled)
+Storage key: z2fFDcPQaK27AQR6NEse/H80ZKtMewbhfjvcC7ZszzxAXUGiQaBu8CqSbs3EttKuL4SgDvPk5iBY+AStn3Ye2Q==
+
+Containers created:
+  raw-data/       → timeseries/, snapshot/, files/
+  processed-data/ → bronze/, silver/, gold/
+
+Data uploaded via upload_to_adls.py (azure-storage-file-datalake):
+  raw-data/timeseries  → 33 files (Parquet + CRC)
+  raw-data/files       → 33 files (Parquet + CRC)
+  raw-data/snapshot    → 1 file (assets.db)
+  Total: 69 files uploaded
+
+NOTE: AzCopy download failed (network restriction) — used Python SDK instead.
+File created: upload_to_adls.py
+
+--------------------------------------------------------------------------------
+EXCHANGE 26 — Databricks CLI + Secret Scope Setup
+--------------------------------------------------------------------------------
+Databricks CLI configured:
+  Host:  https://adb-7405604806384457.17.azuredatabricks.net
+  Token: dapicce170a8f1c0a365317974791a3b733e (poc-token-3)
+
+Previous tokens failed:
+  dapi7ce9b292eeb3771badef6f8078366393 — Authorization failed (wrong workspace user)
+  dapiec415f6f070cdd88a562be809460faaf — Authorization failed
+
+Root cause: User logged into Databricks UI with Gmail account before accessing
+  via Azure Portal Launch Workspace button. After launching from Azure Portal,
+  account was properly initialized and new token worked.
+
+Secret scope created: poc-secrets
+  storage-account-name = stpocadls4417
+  storage-account-key  = (stored securely)
+
+NOTE: databricks CLI secret commands failed with "Bad Request" — used REST API
+  (Invoke-RestMethod) and Python requests instead.
+File created: setup_secrets.py
+
+ERRORS ENCOUNTERED:
+  Error 1: databricks secrets create-scope → Authorization failed
+    Cause: Old CLI + user not in workspace
+  Error 2: Invoke-RestMethod with $HOST variable → read-only variable in PowerShell
+    Fix: Renamed to $DBX_HOST
+  Error 3: Scope name had spaces (poc-  secrets) due to PowerShell line wrapping
+    Fix: Used Python script setup_secrets.py to avoid inline JSON issues
+  Error 4: subprocess.run(['az',...]) inside venv → FileNotFoundError
+    Fix: Used $env:STORAGE_KEY environment variable instead
+
+--------------------------------------------------------------------------------
+EXCHANGE 27 — Cluster Creation
+--------------------------------------------------------------------------------
+Cluster settings:
+  Name:             poc-single-node
+  Mode:             Single Node
+  Runtime:          14.3 LTS
+  Node type:        Standard_E2s_v3 (2 vCPU, 16 GB RAM)
+  Auto-termination: 10 minutes
+  Photon:           Disabled
+
+ERROR: Azure Quota Exceeded Exception
+  Current limit: 10 cores, Current usage: 4 cores
+  VM tried: 8-core VM (wrong selection)
+  Fix: Selected Standard_E2s_v3 (2 vCPU) — fits within quota (4 + 2 = 6 < 10)
+
+STATUS: Cluster creation in progress at end of session.
+
+================================================================================
+FIXES APPLIED LOG (continued from Session 4)
+================================================================================
+
+FIX 13: AzCopy download failure for ADLS upload
+  Cause:  Network restriction blocked AzCopy download from GitHub
+  Fix:    Used azure-storage-file-datalake Python SDK via upload_to_adls.py
+  Date:   2026-03-20
+
+FIX 14: $HOST reserved variable in PowerShell
+  Cause:  $HOST is a built-in read-only variable in PowerShell
+  Fix:    Renamed to $DBX_HOST throughout
+  Date:   2026-03-20
+
+FIX 15: Databricks token authorization failure
+  Cause:  User logged into Databricks UI with Gmail before Azure Portal init
+  Fix:    Accessed workspace via Azure Portal → Launch Workspace button first
+  Date:   2026-03-20
+
+================================================================================
+FILES CREATED LOG (continued)
+================================================================================
+
+upload_to_adls.py      Created   2026-03-20  (uploads local data to ADLS Gen2)
+setup_secrets.py       Created   2026-03-20  (stores secrets in Databricks scope)
+
+================================================================================
+AZURE RESOURCES CREATED
+================================================================================
+
+Subscription ID:    d926b212-30a3-4e2b-aa1c-dcec14dd7ad1
+Resource Group:     rg-databricks-poc (UK South)
+Databricks Workspace: dbw-poc-datasharing
+  URL: https://adb-7405604806384457.17.azuredatabricks.net
+  SKU: Premium (14-day free trial)
+Storage Account:    stpocadls4417 (ADLS Gen2, Standard LRS)
+  Containers: raw-data, processed-data
+Secret Scope:       poc-secrets
+Cluster:            poc-single-node (Standard_E2s_v3, in progress)
+
+================================================================================
 END OF LOG — APPEND NEW EXCHANGES BELOW THIS LINE
 ================================================================================

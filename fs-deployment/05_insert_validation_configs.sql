@@ -28,7 +28,7 @@ BEGIN
       {"position": 3, "name": "senderRole", "mandatory": true, "minLength": 1, "maxLength": 1},
       {"position": 4, "name": "senderId", "mandatory": true, "minLength": 4, "maxLength": 4},
       {"position": 5, "name": "recipientRole", "mandatory": true, "minLength": 1, "maxLength": 1},
-      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4},
+      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4, "pattern": "^(LOND|SEEB|EELC|EDFI)$"},
       {"position": 7, "name": "timestamp", "mandatory": true, "dataType": "DATETIME", "minLength": 14, "maxLength": 14, "format": "YYYYMMDDHH24MISS"}
     ]
   },
@@ -199,7 +199,7 @@ BEGIN
       {"position": 3, "name": "senderRole", "mandatory": true, "minLength": 1, "maxLength": 1},
       {"position": 4, "name": "senderId", "mandatory": true, "minLength": 4, "maxLength": 4},
       {"position": 5, "name": "recipientRole", "mandatory": true, "minLength": 1, "maxLength": 1},
-      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4},
+      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4, "pattern": "^(LOND|SEEB|EELC|EDFI)$"},
       {"position": 7, "name": "timestamp", "mandatory": true, "dataType": "DATETIME", "minLength": 14, "maxLength": 14, "format": "YYYYMMDDHH24MISS"}
     ]
   },
@@ -332,7 +332,7 @@ BEGIN
       {"position": 3, "name": "senderRole", "mandatory": true, "minLength": 1, "maxLength": 1},
       {"position": 4, "name": "senderId", "mandatory": true, "minLength": 4, "maxLength": 4},
       {"position": 5, "name": "recipientRole", "mandatory": true, "minLength": 1, "maxLength": 1},
-      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4},
+      {"position": 6, "name": "recipientId", "mandatory": true, "minLength": 4, "maxLength": 4, "pattern": "^(LOND|SEEB|EELC|EDFI)$"},
       {"position": 7, "name": "timestamp", "mandatory": true, "dataType": "DATETIME", "minLength": 14, "maxLength": 14, "format": "YYYYMMDDHH24MISS"}
     ]
   },

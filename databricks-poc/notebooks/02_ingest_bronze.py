@@ -88,20 +88,20 @@ def ingest_snapshot_to_bronze(bronze_path):
     print(f"    Source: {cfg['jdbc_url']}  table={cfg['table_name']}")
     print(f"    Target: {bronze_path}")
 
-    raw_df = (spark.read
-        .format("jdbc")
-        .option("url", cfg["jdbc_url"])
-        .option("dbtable", cfg["table_name"])
-        .option("driver", cfg["jdbc_driver"])
-        .load()
-        # SQLite stores dates as TEXT → cast to DateType
-        .withColumn("snapshot_date", F.to_date(F.col("snapshot_date")))
-        .withColumn("last_maintenance_date", F.to_date(F.col("last_maintenance_date")))
-        # SQLite JDBC returns REAL columns as FloatType → cast to DoubleType
-        .withColumn("capacity_mw",   F.col("capacity_mw").cast("double"))
-        .withColumn("voltage_kv",    F.col("voltage_kv").cast("double"))
-        .withColumn("location_lat",  F.col("location_lat").cast("double"))
-        .withColumn("location_lon",  F.col("location_lon").cast("double")))
+    # Read via pandas to avoid SQLite JDBC CHAR(0) type mapping issues
+    # (SQLite JDBC maps TEXT → CHAR(0) which Delta rejects with invariant violation)
+    import pandas as pd
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{cfg['sqlite_path']}")
+    pdf = pd.read_sql_table(cfg["table_name"], engine)
+    pdf["snapshot_date"]        = pd.to_datetime(pdf["snapshot_date"]).dt.date
+    pdf["last_maintenance_date"] = pd.to_datetime(pdf["last_maintenance_date"]).dt.date
+    pdf["capacity_mw"]  = pdf["capacity_mw"].astype(float)
+    pdf["voltage_kv"]   = pdf["voltage_kv"].astype(float)
+    pdf["location_lat"] = pdf["location_lat"].astype(float)
+    pdf["location_lon"] = pdf["location_lon"].astype(float)
+
+    raw_df = spark.createDataFrame(pdf)
     raw_count = raw_df.count()
     print(f"    Raw records: {raw_count:,}")
 

@@ -1,0 +1,8 @@
+{
+    "shareCredentialsVersion": 2,
+    "type": "oauth_client_credentials",
+    "endpoint": "https://localhost/delta-sharing/",
+    "tokenEndpoint": "tokenEndpoint",
+    "clientId": "clientId",
+    "clientSecret": "clientSecret"
+}
