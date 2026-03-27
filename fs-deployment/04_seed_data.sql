@@ -106,6 +106,7 @@ INSERT INTO MDQ_APP_MSG_REF (MSG_PK, MSG_TEXT, MSG_TYPE) VALUES ('ERR8041', 'Unk
 INSERT INTO MDQ_APP_MSG_REF (MSG_PK, MSG_TEXT, MSG_TYPE) VALUES ('ERR8042', 'Unsupported flow type: @1', 'E');
 INSERT INTO MDQ_APP_MSG_REF (MSG_PK, MSG_TEXT, MSG_TYPE) VALUES ('ERR8043', 'Footer field @1 is mandatory but is not populated', 'E');
 INSERT INTO MDQ_APP_MSG_REF (MSG_PK, MSG_TEXT, MSG_TYPE) VALUES ('ERR8044', 'Field @1 is mandatory but is not populated', 'E');
+INSERT INTO MDQ_APP_MSG_REF (MSG_PK, MSG_TEXT, MSG_TYPE) VALUES ('ERR8045', 'Field recipientId value @1 is not a valid UK Power Networks DNO', 'E');
 
 COMMIT;
 

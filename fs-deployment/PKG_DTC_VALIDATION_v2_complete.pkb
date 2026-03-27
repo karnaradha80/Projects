@@ -50,6 +50,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
   C_ERR_DATA_FIELD_MANDATORY CONSTANT VARCHAR2(50) := 'ERR8044';
   C_ERR_GROUP_MIN_OCC       CONSTANT VARCHAR2(50) := 'ERR8030';
   C_ERR_GROUP_MAX_OCC       CONSTANT VARCHAR2(50) := 'ERR8031';
+  C_ERR_RECIPIENT_ID        CONSTANT VARCHAR2(50) := 'ERR8045';
 
 ----------------------------------------------------------------------------------------------------
 -- Helper function: Add error to collection (public)
@@ -134,6 +135,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
     v_decimal_pos  NUMBER;
     v_total_digits NUMBER;
     v_decimal_digits NUMBER;
+    v_pattern_error_code VARCHAR2(20);
   BEGIN
     p_field_name := p_field_config.get_String('name');
     v_mandatory := p_field_config.get_Boolean('mandatory');
@@ -146,6 +148,10 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
 
     IF p_field_config.has('pattern') THEN
       v_pattern := p_field_config.get_String('pattern');
+    END IF;
+
+    IF p_field_config.has('patternErrorCode') THEN
+      v_pattern_error_code := p_field_config.get_String('patternErrorCode');
     END IF;
 
     IF p_field_config.has('format') THEN
@@ -272,7 +278,11 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
         v_pattern := REPLACE(v_pattern, '\\S', '\S');
 
         IF NOT REGEXP_LIKE(p_field_value, v_pattern) THEN
-          p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8021', p_field_name, p_field_value, v_pattern);
+          IF v_pattern_error_code IS NOT NULL THEN
+            p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR(v_pattern_error_code, p_field_value);
+          ELSE
+            p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8021', p_field_name, p_field_value, v_pattern);
+          END IF;
           RETURN FALSE;
         END IF;
       END IF;

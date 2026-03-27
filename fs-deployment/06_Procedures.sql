@@ -1,4 +1,18 @@
- CREATE OR REPLACE EDITIONABLE PROCEDURE "MDQA_OWNER"."LOGGER_WRAPPER" (
+ create or replace PROCEDURE logger(
+  p_caller IN VARCHAR2,
+  p_code IN INTEGER,
+  p_description IN VARCHAR2,
+  p_rowcount IN NUMBER DEFAULT NULL
+)
+IS
+  PRAGMA AUTONOMOUS_TRANSACTION;
+BEGIN
+  INSERT INTO MDQ_APP_LOG_TABLE(ID, DTM, CALLER, CODE, DESCRIPTION, NUMROWS)
+  VALUES(LOG_SEQ.nextval, sysdate, p_caller, p_code, p_description, p_rowcount);
+  COMMIT;
+END;
+ 
+ create or replace PROCEDURE logger_wrapper(
   p_caller      IN VARCHAR2,
   p_code        IN INTEGER,
   p_description IN VARCHAR2,
