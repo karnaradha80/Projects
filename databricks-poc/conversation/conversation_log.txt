@@ -1119,5 +1119,397 @@ Secret Scope:       poc-secrets
 Cluster:            poc-single-node (Standard_E2s_v3, in progress)
 
 ================================================================================
+SESSION 5 — 2026-04-07
+================================================================================
+
+--------------------------------------------------------------------------------
+EXCHANGE 28 — Session Resume: Status Review
+--------------------------------------------------------------------------------
+USER: Read conversation_log.txt and docs to understand where we are and what
+      to do next.
+
+CLAUDE: Read full conversation log and both guide documents. Provided complete
+  status summary:
+  - Part 1 (Local): 100% complete — all 15 sections done, 19/19 checks pass,
+    ChatOps live tested, Power BI connected, docs created
+  - Part 2 (Azure): ~60% done — infrastructure provisioned, cluster confirmed
+    running, notebooks needed updating for ADLS Gen2
+
+--------------------------------------------------------------------------------
+EXCHANGE 29 — Notebook Updates for Azure (abfss:// paths)
+--------------------------------------------------------------------------------
+ISSUE IDENTIFIED: Existing notebooks/databricks/ used DBFS paths
+  (dbfs:/utilitics/lake/) built for Community Edition. Azure workspace with
+  Unity Catalog requires abfss:// direct paths — dbutils.fs.mount() is
+  disabled when Unity Catalog is enabled.
+
+CHANGES MADE:
+  notebooks/databricks/00_config.py:
+    - Reads storage-account-name and storage-account-key from poc-secrets scope
+    - Sets spark.conf for abfss:// authentication
+    - All paths changed from /mnt/ to abfss://raw-data@stpocadls4417... and
+      abfss://processed-data@stpocadls4417...
+    - raw_snapshot_csv key replaced with raw_snapshot (Parquet, not CSV)
+
+  notebooks/databricks/01_generate_data.py:
+    - Snapshot write changed: CSV on DBFS → Parquet on ADLS Gen2
+    - Schema updated: snapshot_date and last_maintenance_date use DateType
+      (not StringType) — proper native types, no CHAR(0) issues
+
+  notebooks/databricks/02_ingest_bronze.py:
+    - ingest_snapshot_to_bronze() removed — snapshot now uses same
+      ingest_to_bronze() as other sources (reads Parquet, not CSV)
+
+  notebooks/databricks/create_catalog.py:
+    - Added %run ./00_config at top (storage credentials needed for SQL cells)
+    - Added MANAGED LOCATION to CREATE CATALOG (later bypassed — see below)
+
+  notebooks/databricks/create_catalog.py:
+    - CREATE CATALOG replaced with SHOW CATALOG (catalog created via UI)
+
+NEW FILES CREATED:
+  notebooks/databricks/mount_storage.py  — mounts ADLS containers (not used,
+                                           dbutils.fs.mount() disabled)
+  notebooks/databricks/create_catalog.py — Unity Catalog structure setup
+  upload_notebooks.py                    — REST API uploader for all notebooks
+
+--------------------------------------------------------------------------------
+EXCHANGE 30 — Notebook Upload
+--------------------------------------------------------------------------------
+COMMAND: python upload_notebooks.py (from C:/Projects/databricks-poc/)
+RESULT: All 9 notebooks uploaded successfully to /POC/ in workspace
+  /POC/mount_storage, /POC/create_catalog, /POC/00_config,
+  /POC/01_generate_data, /POC/02_ingest_bronze, /POC/03_transform_silver,
+  /POC/04_aggregate_gold, /POC/05_validate, /POC/run_pipeline
+
+NOTE: Unicode error in print statements (arrow character) — cosmetic only,
+  all uploads succeeded.
+
+--------------------------------------------------------------------------------
+EXCHANGE 31 — Unity Catalog Setup Issues
+--------------------------------------------------------------------------------
+ATTEMPT 1: dbutils.fs.mount() in mount_storage notebook
+  ERROR: Py4JError — mount() not whitelisted with Unity Catalog enabled
+  FIX: Skip mount_storage entirely. Use abfss:// paths directly in 00_config.py
+
+ATTEMPT 2: accounts.azuredatabricks.net for metastore creation
+  ERROR: "Selected user account does not exist in tenant Microsoft Services"
+  ROOT CAUSE: Account Console requires Azure AD org account; user has
+    Gmail/personal account linked to Azure subscription
+  FIX: Skip Account Console — Unity Catalog already auto-enabled on workspace
+
+DISCOVERY: Unity Catalog already active — "Catalog" visible in left sidebar
+  with dbw-poc-datasharing workspace, main and system catalogs present.
+
+ATTEMPT 3: create_catalog notebook Run All
+  ERROR: INVALID_STATE — Metastore storage root URL does not exist
+  FIX: Added MANAGED LOCATION to CREATE CATALOG pointing to ADLS
+
+ATTEMPT 4: CREATE CATALOG with MANAGED LOCATION
+  ERROR: EXTERNAL_LOCATION_DOES_NOT_EXIST — abfss:// path not registered
+    as External Location in Unity Catalog
+  FIX: Create catalog via UI using Default Storage instead
+
+RESOLUTION:
+  - User created catalog data_sharing_poc via Databricks UI (Catalog → "+")
+  - Schemas bronze/silver/gold created via SQL Editor:
+      USE CATALOG data_sharing_poc;
+      CREATE SCHEMA IF NOT EXISTS bronze ...
+      CREATE SCHEMA IF NOT EXISTS silver ...
+      CREATE SCHEMA IF NOT EXISTS gold ...
+  - All 3 schemas confirmed created (visible in Catalog left sidebar)
+
+CATALOG STRUCTURE CONFIRMED:
+  data_sharing_poc
+  ├── bronze   (created 2026-04-07)
+  ├── silver   (created 2026-04-07)
+  ├── gold     (created 2026-04-07)
+  └── default  (auto-created)
+
+================================================================================
+CURRENT STATUS — 2026-04-07
+================================================================================
+
+COMPLETED THIS SESSION:
+  [x] Cluster poc-single-node confirmed running
+  [x] All 9 notebooks updated for abfss:// paths and uploaded to /POC/
+  [x] Unity Catalog confirmed active (auto-enabled on Premium workspace)
+  [x] Catalog data_sharing_poc created via UI
+  [x] Schemas bronze, silver, gold created via SQL Editor
+
+NEXT STEPS (in order):
+  [ ] Run 01_generate_data    → 266K records to ADLS
+  [ ] Run 02_ingest_bronze    → 3 Delta tables in processed-data/bronze/
+  [ ] Run 03_transform_silver → 3 Delta tables in processed-data/silver/
+  [ ] Run 04_aggregate_gold   → 4 Delta tables in processed-data/gold/
+  [ ] Run 05_validate         → 19/19 checks pass
+  [ ] Run create_catalog Step 3 → register Delta tables in Unity Catalog
+  [ ] Phase 8: Real Delta Sharing via Unity Catalog
+  [ ] Phase 9: Databricks Workflows (scheduled pipeline)
+  [ ] Phase 10: Update ChatOps webhook to Azure Functions
+
+================================================================================
+FIXES APPLIED LOG (continued from Session 4)
+================================================================================
+
+FIX 16: dbutils.fs.mount() disabled with Unity Catalog
+  Cause:  Unity Catalog blocks legacy mount API
+  Fix:    Use abfss:// paths directly with spark.conf.set() for auth
+  Date:   2026-04-07
+
+FIX 17: Snapshot written as CSV for Community Edition
+  Cause:  Community Edition had no proper storage; CSV was workaround
+  Fix:    Snapshot written as Parquet with native DateType schema
+  Date:   2026-04-07
+
+FIX 18: CREATE CATALOG MANAGED LOCATION not registered as External Location
+  Cause:  Unity Catalog requires External Location registration before
+          abfss:// paths can be used as managed locations
+  Fix:    Created catalog via UI using Default Storage
+  Date:   2026-04-07
+
+================================================================================
+FILES CREATED/MODIFIED LOG (continued from Session 4)
+================================================================================
+
+notebooks/databricks/00_config.py       Modified  2026-04-07
+notebooks/databricks/01_generate_data.py Modified  2026-04-07
+notebooks/databricks/02_ingest_bronze.py Modified  2026-04-07
+notebooks/databricks/create_catalog.py  Modified  2026-04-07
+notebooks/databricks/mount_storage.py   Created   2026-04-07
+upload_notebooks.py                     Created   2026-04-07
+
+================================================================================
+SESSION 6 — 2026-04-07 (ChatOps Live + New Commands)
+================================================================================
+
+--------------------------------------------------------------------------------
+EXCHANGE 32 — Presentation PPT Created
+--------------------------------------------------------------------------------
+USER: Create a PPT for tomorrow's presentation (boss, super boss, team, juniors)
+
+CLAUDE: Created Utilitics_Platform_Presentation.pptx (12 slides initially)
+  File: C:/Projects/databricks-poc/Utilitics_Platform_Presentation.pptx
+  Script: create_presentation.py
+
+SLIDES:
+  1.  Title — POC status badge
+  2.  Agenda
+  3.  Business Requirement + success criteria checklist
+  4.  Our Approach — local first then Azure
+  5.  Solution Architecture diagram
+  6.  Technology Stack — 4 categories
+  7.  Part 1 Complete — stats + ChatOps flow
+  8.  Part 2 Progress — 10 done / 5 remaining
+  9.  Key Achievements — 6 cards
+  10. What's Next — 4 phases
+  11. Business Value
+  12. Thank You + Q&A
+
+--------------------------------------------------------------------------------
+EXCHANGE 33 — Delta Sharing Clarification
+--------------------------------------------------------------------------------
+USER: delta sharing is a bidirectional one right?
+
+CLAUDE: Clarified — Delta Sharing protocol is UNIDIRECTIONAL by design:
+  - Provider → Recipient (read-only)
+  - Vendor write-back in local POC = custom Python file write (NOT Delta Sharing)
+  - True bidirectional on Azure = two separate Delta Shares or REST API
+
+UPDATES MADE:
+  - PPT Slide 3: "Data shared with vendor (Utilitics→Vendor, read-only)"
+  - PPT Slide 5: Delta Sharing box updated to show unidirectional
+  - PPT Slide 7: Part 1 list updated to reflect simulation only
+  - PPT Slide 10: Phase 8 split into Delta Sharing + Vendor write-back tasks
+  - flowdiagram/architecture.html: Added protocol note box with warning
+
+--------------------------------------------------------------------------------
+EXCHANGE 34 — Flowdiagram Updated
+--------------------------------------------------------------------------------
+UPDATES TO flowdiagram/architecture.html:
+  - Subtitle: date updated to 2026-04-07
+  - Stats row: "Part 1 Done" → "Part 2 Active"
+  - YOU ARE HERE badge: now points to "Part 2 Azure Pipeline"
+  - Overall roadmap: Part 2 box changed yellow/in-progress, shows actual
+    completed items vs next steps
+  - Delta Sharing diagram: added warning note — protocol is unidirectional,
+    vendor write-back = separate share or REST API
+  - Part 2 Migration section: badge FUTURE → IN PROGRESS
+    Diagram split into: COMPLETED / NEXT STEPS / Phase 8 / Phase 9 / Phase 10
+  - Progress bars: Part 2 split into 4 bars:
+      Infrastructure (100%), Pipeline run (0% — YOU ARE HERE),
+      Delta Sharing (0%), Workflows+ChatOps (0%)
+  - Runtime Flag diagram: cloud path updated to abfss:// from DBFS
+  - File map: databricks/ updated with mount_storage + create_catalog notebooks
+
+--------------------------------------------------------------------------------
+EXCHANGE 35 — Databricks Explanation + 3 New PPT Slides
+--------------------------------------------------------------------------------
+USER: explain Databricks in detail and add slides to PPT
+
+CLAUDE: Explained Databricks fully:
+  - Founded 2013 by Apache Spark creators (UC Berkeley)
+  - Platform stack: Cloud Storage → Spark → Delta Lake → Unity Catalog → Workflows
+  - Key features: ACID, Time Travel, Schema enforcement, Medallion architecture,
+    Delta Sharing (unidirectional), Workflows scheduling
+  - Why Azure Databricks: native Azure AD, ADLS, Key Vault integration
+  - Cost: ~£5-8/month for our POC vs £500+/month alternatives
+
+PPT UPDATED: 12 slides → 15 slides
+  NEW SLIDES ADDED:
+    Slide 5: What is Databricks?
+      - Left: plain English explanation, who uses it
+      - Right: 5-layer platform stack visual
+    Slide 6: Databricks Key Features
+      - 6 feature cards: Spark, Delta Lake, Medallion, Unity Catalog,
+        Delta Sharing, Workflows
+    Slide 7: Why Azure Databricks?
+      - Left: comparison table vs SQL Server / Self-managed Spark / Synapse
+      - Right: Azure integrations we actually use
+
+  EXISTING SLIDES RENUMBERED: 5-12 → 8-15
+  Total: 15 slides
+
+--------------------------------------------------------------------------------
+EXCHANGE 36 — ChatOps Live Test (Session 6)
+--------------------------------------------------------------------------------
+SETUP:
+  Server started: python automation/webhook_server.py (port 8000)
+  ngrok started: ngrok http 8000
+  ngrok URL: https://irwin-equilibristic-rosanne.ngrok-free.dev
+  Twilio webhook: https://irwin-equilibristic-rosanne.ngrok-free.dev/webhook
+
+ISSUE: anthropic.AuthenticationError 401 — invalid API key in .env
+FIX: Updated ANTHROPIC_API_KEY in automation/.env with new key from
+     console.anthropic.com
+
+LIVE TEST RESULTS:
+  WhatsApp "status"       → received ✅ → Claude replied ✅ → HTTP 200 OK ✅
+  WhatsApp "run pipline"  → received ✅ (typo handled by Claude AI) ✅
+                          → Claude called run_pipeline tool ✅
+                          → Pipeline ran ~265 seconds ✅
+                          → WhatsApp reply received:
+                            "Pipeline completed successfully in 265.1 seconds
+                             on local runtime. Generated: 266,000 total records
+                             (168K time series, 14K snapshot, 84K file data).
+                             Bronze → Silver: All 266,000 records ingested and
+                             transformed without loss" ✅
+
+FULL END-TO-END CONFIRMED:
+  WhatsApp → Twilio → ngrok → FastAPI → Claude AI → Pipeline → WhatsApp reply
+
+--------------------------------------------------------------------------------
+EXCHANGE 37 — ChatOps Commands Reference
+--------------------------------------------------------------------------------
+FULL COMMAND LIST (8 commands after new additions):
+
+  run pipeline          → runs all 5 steps end-to-end (~5 min)
+  run step <name>       → runs one step (generate/bronze/silver/gold/validate/sharing)
+  run sharing           → runs Delta Sharing simulation (Option A)
+  status                → shows last pipeline run result
+  get runtime           → shows current runtime (local or databricks)
+  set runtime local     → switches pipeline to run locally
+  set runtime databricks → switches pipeline to run on Azure Databricks
+  clear data            → clears raw/bronze/silver/gold, KEEPS vendor folder
+  clear all             → clears everything INCLUDING vendor folder
+
+NOTE: Claude understands natural language — typos and variations work fine.
+  Example: "run pipline" (typo) → still triggered run_pipeline correctly
+
+--------------------------------------------------------------------------------
+EXCHANGE 38 — New clear_data + clear_all Commands Added
+--------------------------------------------------------------------------------
+USER: Create WhatsApp commands "clear data" (keeps vendor) and "clear all"
+      (includes vendor)
+
+FILES MODIFIED:
+  automation/pipeline_runner.py:
+    - Added clear_data(include_vendor=False) function
+    - Clears: lake/raw, lake/bronze, lake/silver, lake/sources,
+              lake/spark-warehouse
+    - For gold: clears all subfolders EXCEPT vendor_forecast_output
+      (when include_vendor=False)
+    - When include_vendor=True: deletes entire lake/gold including vendor folder
+    - Also clears .last_pipeline_run.txt state file
+
+  automation/claude_tools.py:
+    - Imported clear_data from pipeline_runner
+    - Added "clear_data" tool schema with include_vendor boolean parameter
+    - Claude maps:
+        "clear data" / "clear our data"  → include_vendor=False
+        "clear all" / "clear all data"   → include_vendor=True
+    - Added elif branch in execute_tool() dispatcher
+
+LOGIC:
+  "clear data"  → vendor_forecast_output kept, all other lake/ data removed
+  "clear all"   → entire lake/ cleared including vendor responses
+
+CORRECT ORDER FOR FRESH START:
+  1. WhatsApp: "clear data" or "clear all"
+  2. WhatsApp: "run pipeline"  (~5 min)
+  3. WhatsApp: "run sharing"   (vendor gets data)
+
+================================================================================
+HOW CHATOPS WORKS — FULL EXPLANATION
+================================================================================
+
+FLOW:
+  Your Phone → WhatsApp → Twilio → ngrok → FastAPI → Claude AI → Pipeline
+  → result → Claude AI formats → Twilio → WhatsApp → Your Phone
+
+COMPONENT ROLES:
+  WhatsApp:        Messaging interface — sends/receives messages
+  Twilio:          WhatsApp Business API — receives messages, calls webhook
+  ngrok:           Public tunnel to your laptop (no public IP needed)
+                   URL: https://irwin-equilibristic-rosanne.ngrok-free.dev
+  FastAPI:         webhook_server.py on port 8000 — orchestrates everything
+  Claude AI:       Understands natural language, decides which tool to call
+  pipeline_runner: Runs pipeline scripts as subprocess, captures output
+  Background thread: Pipeline runs async — prevents Twilio 15s timeout
+
+WHY EACH COMPONENT:
+  Twilio:          WhatsApp doesn't allow direct bots — Twilio provides API
+  ngrok:           Laptop has no public IP — ngrok creates public tunnel
+  Claude AI:       Natural language understanding — no rigid commands needed
+  Background thread: Pipeline takes 5 min — webhook must return in 15 sec
+
+PHASE 10 UPGRADE:
+  Replace ngrok with Azure Functions → permanent public URL, no laptop needed
+
+================================================================================
+CURRENT CHATOPS FILES
+================================================================================
+
+  automation/webhook_server.py   — FastAPI + Twilio webhook + Claude loop
+  automation/claude_tools.py     — 8 tool schemas + execute_tool() dispatcher
+  automation/pipeline_runner.py  — subprocess wrapper + clear_data function
+  automation/.env                — credentials (not in git)
+  automation/.env.example        — template
+
+================================================================================
+FIXES APPLIED LOG (continued from Session 5)
+================================================================================
+
+FIX 19: Anthropic API key 401 error
+  Cause:  Old/invalid key in automation/.env
+  Fix:    Created new key at console.anthropic.com, updated .env
+  Date:   2026-04-07
+
+FIX 20: Server running on port 8000 (not 8080 as before)
+  Cause:  Default uvicorn port changed — ngrok must use 8000
+  Fix:    ngrok http 8000 (not 8000)
+  Date:   2026-04-07
+
+================================================================================
+FILES CREATED/MODIFIED LOG (continued from Session 5)
+================================================================================
+
+create_presentation.py          Modified  2026-04-07  (15 slides, 3 new Databricks)
+Utilitics_Platform_Presentation.pptx Modified 2026-04-07 (15 slides)
+flowdiagram/architecture.html   Modified  2026-04-07
+automation/pipeline_runner.py   Modified  2026-04-07  (clear_data added)
+automation/claude_tools.py      Modified  2026-04-07  (clear_data tool added)
+
+================================================================================
 END OF LOG — APPEND NEW EXCHANGES BELOW THIS LINE
 ================================================================================

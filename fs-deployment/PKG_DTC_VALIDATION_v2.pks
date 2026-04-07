@@ -115,7 +115,8 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
   FUNCTION FN_VALIDATE_FILE_V2(
     p_file_content IN CLOB,
     p_flow_type    IN VARCHAR2,
-    p_result       OUT t_file_validation_result
+    p_result       OUT t_file_validation_result,
+    p_lines        OUT DBMS_SQL.VARCHAR2A  -- Returns pre-split lines to avoid re-splitting in flow packages
   ) RETURN BOOLEAN;
 
   -- NEW: Parse header and extract all fields
@@ -202,6 +203,24 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
     p_errors       OUT t_validation_errors
   ) RETURN BOOLEAN;
 
+  -- Overload: accepts pre-parsed groups array to avoid re-parsing JSON config on every line
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_line          IN VARCHAR2,
+    p_group_id      IN VARCHAR2,
+    p_groups_array  IN JSON_ARRAY_T,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
+  ) RETURN BOOLEAN;
+
+  -- Overload: accepts pre-parsed fields array to avoid re-splitting the line
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_fields        IN PKG_DTC_COMMON.t_fields_array,
+    p_group_id      IN VARCHAR2,
+    p_groups_array  IN JSON_ARRAY_T,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
+  ) RETURN BOOLEAN;
+
   -- NEW: Helper function to check if a line belongs to a valid parent group
   FUNCTION FN_IS_LINE_IN_VALID_GROUP(
     p_line_number     IN NUMBER,
@@ -214,6 +233,39 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
     p_parent_groups   IN t_parent_group_ranges,
     p_parent_group_id OUT VARCHAR2,
     p_is_valid        OUT BOOLEAN
+  ) RETURN BOOLEAN;
+
+  -- Pre-processed field configuration record (extracted once from JSON before the line loop)
+  TYPE t_field_config IS RECORD (
+    field_name          VARCHAR2(100),
+    mandatory           BOOLEAN,
+    min_length          NUMBER,
+    max_length          NUMBER,
+    data_type           VARCHAR2(20),
+    pattern             VARCHAR2(200),   -- Escape sequences already resolved
+    pattern_error_code  VARCHAR2(20),
+    fmt                 VARCHAR2(50),
+    precision           NUMBER,
+    scale               NUMBER,
+    position            NUMBER           -- 0-based position from JSON config
+  );
+
+  -- Flat cache of pre-processed field configs; key = group_id || '~' || field_index (0-based)
+  TYPE t_field_config_cache IS TABLE OF t_field_config INDEX BY VARCHAR2(20);
+
+  -- Build a pre-processed field config cache from the parsed JSON groups array.
+  -- Call once before the line loop; pass the result to the FN_VALIDATE_GROUP_LINE cache overload.
+  FUNCTION FN_BUILD_GROUP_CACHE(
+    p_groups_array IN JSON_ARRAY_T
+  ) RETURN t_field_config_cache;
+
+  -- Overload: validate using pre-built config cache (no JSON parsing, no REPLACE per line)
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_fields        IN PKG_DTC_COMMON.t_fields_array,
+    p_group_id      IN VARCHAR2,
+    p_group_cache   IN t_field_config_cache,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
   ) RETURN BOOLEAN;
 
   -- Helper: Add error to collection (made public for use by flow packages)

@@ -608,6 +608,463 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
   END FN_VALIDATE_GROUP_LINE;
 
 ----------------------------------------------------------------------------------------------------
+-- Overload: Validate a single group line using pre-parsed groups array (avoids JSON re-parse per line)
+----------------------------------------------------------------------------------------------------
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_line          IN VARCHAR2,
+    p_group_id      IN VARCHAR2,
+    p_groups_array  IN JSON_ARRAY_T,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
+  ) RETURN BOOLEAN IS
+    v_group_config JSON_OBJECT_T;
+    v_fields_array JSON_ARRAY_T;
+    v_field_config JSON_OBJECT_T;
+    v_line_parts   DBMS_SQL.VARCHAR2A;
+    v_part_idx     NUMBER := 1;
+    v_pos          NUMBER := 1;
+    v_next_pos     NUMBER;
+    v_field_value  VARCHAR2(4000);
+    v_field_name   VARCHAR2(100);
+    v_error_msg    VARCHAR2(4000);
+    v_valid        BOOLEAN := TRUE;
+    v_found        BOOLEAN := FALSE;
+    v_current_group_id VARCHAR2(10);
+  BEGIN
+    p_errors := t_validation_errors();
+
+    -- Find the group configuration using the caller-provided pre-parsed array
+    FOR i IN 0 .. p_groups_array.get_size - 1 LOOP
+      v_group_config := JSON_OBJECT_T(p_groups_array.get(i));
+      v_current_group_id := v_group_config.get_String('groupId');
+
+      IF v_current_group_id = p_group_id THEN
+        v_found := TRUE;
+        EXIT;
+      END IF;
+    END LOOP;
+
+    IF NOT v_found THEN
+      IF NVL(LENGTH(p_group_id), 0) = 0 THEN
+        ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', 'groupId'), p_line_number, 'groupId', p_group_id,
+            p_field_position => 1);
+      ELSE
+        ADD_ERROR(p_errors, 'UNKNOWN_GROUP',
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8027', p_group_id), p_line_number, 'groupId', p_group_id,
+            p_field_position => 1);
+      END IF;
+      RETURN FALSE;
+    END IF;
+
+    -- Get fields configuration
+    v_fields_array := JSON_ARRAY_T(v_group_config.get('fields'));
+
+    -- Split line by delimiter
+    WHILE v_pos <= LENGTH(p_line) LOOP
+      v_next_pos := INSTR(p_line, PKG_DTC_COMMON.C_DELIMITER, v_pos);
+      IF v_next_pos = 0 THEN
+        v_next_pos := LENGTH(p_line) + 1;
+      END IF;
+
+      v_line_parts(v_part_idx) := SUBSTR(p_line, v_pos, v_next_pos - v_pos);
+      v_part_idx := v_part_idx + 1;
+      v_pos := v_next_pos + 1;
+    END LOOP;
+
+    -- Validate each field
+    FOR i IN 0 .. v_fields_array.get_size - 1 LOOP
+      v_field_config := JSON_OBJECT_T(v_fields_array.get(i));
+      v_part_idx := v_field_config.get_Number('position') + 1;
+
+      IF v_line_parts.EXISTS(v_part_idx) THEN
+        v_field_value := v_line_parts(v_part_idx);
+      ELSE
+        v_field_value := NULL;
+      END IF;
+
+      IF NOT FN_VALIDATE_FIELD(v_field_value, v_field_config, v_field_name, v_error_msg) THEN
+        IF NVL(LENGTH(v_field_value), 0) = 0 THEN
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+            PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', v_field_name), p_line_number, v_field_name, v_field_value,
+            p_field_position => v_field_config.get_Number('position') + 1);
+        ELSE
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY, v_error_msg, p_line_number, v_field_name, v_field_value,
+            p_field_position => v_field_config.get_Number('position') + 1);
+        END IF;
+        v_valid := FALSE;
+      END IF;
+    END LOOP;
+
+    RETURN v_valid;
+  EXCEPTION
+    WHEN OTHERS THEN
+      ADD_ERROR(p_errors, 'GROUP_VALIDATION_ERROR',
+        PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8028', p_group_id, SQLERRM), p_line_number, 'groupId', p_group_id,
+          p_field_position => 1);
+      RETURN FALSE;
+  END FN_VALIDATE_GROUP_LINE;
+
+----------------------------------------------------------------------------------------------------
+-- Overload: Validate using pre-parsed fields array (avoids line splitting per call)
+----------------------------------------------------------------------------------------------------
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_fields        IN PKG_DTC_COMMON.t_fields_array,
+    p_group_id      IN VARCHAR2,
+    p_groups_array  IN JSON_ARRAY_T,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
+  ) RETURN BOOLEAN IS
+    v_group_config     JSON_OBJECT_T;
+    v_fields_array     JSON_ARRAY_T;
+    v_field_config     JSON_OBJECT_T;
+    v_part_idx         NUMBER;
+    v_field_value      VARCHAR2(4000);
+    v_field_name       VARCHAR2(100);
+    v_error_msg        VARCHAR2(4000);
+    v_valid            BOOLEAN := TRUE;
+    v_found            BOOLEAN := FALSE;
+    v_current_group_id VARCHAR2(10);
+  BEGIN
+    p_errors := t_validation_errors();
+
+    -- Find group config using pre-parsed groups array
+    FOR i IN 0 .. p_groups_array.get_size - 1 LOOP
+      v_group_config := JSON_OBJECT_T(p_groups_array.get(i));
+      v_current_group_id := v_group_config.get_String('groupId');
+      IF v_current_group_id = p_group_id THEN
+        v_found := TRUE;
+        EXIT;
+      END IF;
+    END LOOP;
+
+    IF NOT v_found THEN
+      IF NVL(LENGTH(p_group_id), 0) = 0 THEN
+        ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', 'groupId'), p_line_number, 'groupId', NULL,
+            p_field_position => 1);
+      ELSE
+        ADD_ERROR(p_errors, 'UNKNOWN_GROUP',
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8027', p_group_id), p_line_number, 'groupId', p_group_id,
+            p_field_position => 1);
+      END IF;
+      RETURN FALSE;
+    END IF;
+
+    -- Get fields configuration
+    v_fields_array := JSON_ARRAY_T(v_group_config.get('fields'));
+
+    -- Validate each field using pre-parsed fields (no line splitting needed)
+    FOR i IN 0 .. v_fields_array.get_size - 1 LOOP
+      v_field_config := JSON_OBJECT_T(v_fields_array.get(i));
+      v_part_idx := v_field_config.get_Number('position') + 1;
+
+      IF p_fields.EXISTS(v_part_idx) THEN
+        v_field_value := p_fields(v_part_idx);
+      ELSE
+        v_field_value := NULL;
+      END IF;
+
+      IF NOT FN_VALIDATE_FIELD(v_field_value, v_field_config, v_field_name, v_error_msg) THEN
+        IF NVL(LENGTH(v_field_value), 0) = 0 THEN
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+            PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', v_field_name), p_line_number, v_field_name, v_field_value,
+            p_field_position => v_field_config.get_Number('position') + 1);
+        ELSE
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY, v_error_msg, p_line_number, v_field_name, v_field_value,
+            p_field_position => v_field_config.get_Number('position') + 1);
+        END IF;
+        v_valid := FALSE;
+      END IF;
+    END LOOP;
+
+    RETURN v_valid;
+  EXCEPTION
+    WHEN OTHERS THEN
+      ADD_ERROR(p_errors, 'GROUP_VALIDATION_ERROR',
+        PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8028', p_group_id, SQLERRM), p_line_number, 'groupId', p_group_id,
+          p_field_position => 1);
+      RETURN FALSE;
+  END FN_VALIDATE_GROUP_LINE;
+
+----------------------------------------------------------------------------------------------------
+-- Private overload: Validate a single field using pre-processed t_field_config (no JSON per call)
+----------------------------------------------------------------------------------------------------
+  FUNCTION FN_VALIDATE_FIELD(
+    p_field_value  IN VARCHAR2,
+    p_field_config IN t_field_config,
+    p_error_msg    OUT VARCHAR2
+  ) RETURN BOOLEAN IS
+    v_field_length   NUMBER;
+    v_number_value   NUMBER;
+    v_date_value     DATE;
+    v_integer_part   VARCHAR2(100);
+    v_decimal_part   VARCHAR2(100);
+    v_decimal_pos    NUMBER;
+    v_total_digits   NUMBER;
+    v_decimal_digits NUMBER;
+  BEGIN
+    v_field_length := NVL(LENGTH(p_field_value), 0);
+
+    -- Check mandatory
+    IF p_field_config.mandatory AND v_field_length = 0 THEN
+      p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8013', p_field_config.field_name);
+      RETURN FALSE;
+    END IF;
+
+    IF v_field_length > 0 THEN
+      -- Check length (skip when NUMBER with precision+scale defined)
+      IF NOT (p_field_config.data_type = 'NUMBER'
+              AND p_field_config.precision IS NOT NULL
+              AND p_field_config.scale     IS NOT NULL) THEN
+        IF v_field_length < p_field_config.min_length THEN
+          p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8014', p_field_config.field_name,
+                           TO_CHAR(v_field_length), TO_CHAR(p_field_config.min_length));
+          RETURN FALSE;
+        END IF;
+        IF v_field_length > p_field_config.max_length THEN
+          p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8015', p_field_config.field_name,
+                           TO_CHAR(v_field_length), TO_CHAR(p_field_config.max_length));
+          RETURN FALSE;
+        END IF;
+      END IF;
+
+      -- Check data type
+      IF p_field_config.data_type IS NOT NULL THEN
+        IF p_field_config.data_type = 'NUMBER' THEN
+          BEGIN
+            v_number_value := TO_NUMBER(p_field_value);
+          EXCEPTION
+            WHEN OTHERS THEN
+              p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8016', p_field_config.field_name, p_field_value);
+              RETURN FALSE;
+          END;
+
+          IF p_field_config.precision IS NOT NULL AND p_field_config.scale IS NOT NULL THEN
+            v_decimal_pos := INSTR(p_field_value, '.');
+            IF v_decimal_pos > 0 THEN
+              v_integer_part   := SUBSTR(p_field_value, 1, v_decimal_pos - 1);
+              v_decimal_part   := SUBSTR(p_field_value, v_decimal_pos + 1);
+              v_integer_part   := LTRIM(LTRIM(v_integer_part, '0'), '-');
+              IF v_integer_part IS NULL THEN v_integer_part := '0'; END IF;
+              v_total_digits   := LENGTH(v_integer_part) + LENGTH(v_decimal_part);
+              v_decimal_digits := LENGTH(v_decimal_part);
+              IF v_decimal_digits > p_field_config.scale THEN
+                p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8017', p_field_config.field_name,
+                                 TO_CHAR(v_decimal_digits), TO_CHAR(p_field_config.scale));
+                RETURN FALSE;
+              END IF;
+              IF v_total_digits > p_field_config.precision THEN
+                p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8018', p_field_config.field_name,
+                                 TO_CHAR(v_total_digits), TO_CHAR(p_field_config.precision));
+                RETURN FALSE;
+              END IF;
+            ELSE
+              v_integer_part := LTRIM(LTRIM(p_field_value, '0'), '-');
+              IF v_integer_part IS NULL THEN v_integer_part := '0'; END IF;
+              v_total_digits := LENGTH(v_integer_part);
+              IF v_total_digits > (p_field_config.precision - p_field_config.scale) THEN
+                p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8019', p_field_config.field_name,
+                                 TO_CHAR(v_total_digits),
+                                 TO_CHAR(p_field_config.precision - p_field_config.scale),
+                                 TO_CHAR(p_field_config.precision), TO_CHAR(p_field_config.scale));
+                RETURN FALSE;
+              END IF;
+            END IF;
+          END IF;
+
+        ELSIF p_field_config.data_type IN ('DATE', 'DATETIME') THEN
+          BEGIN
+            v_date_value := TO_DATE(p_field_value, p_field_config.fmt);
+          EXCEPTION
+            WHEN OTHERS THEN
+              p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8020', p_field_config.field_name,
+                               p_field_value, p_field_config.fmt);
+              RETURN FALSE;
+          END;
+        END IF;
+      END IF;
+
+      -- Check pattern (already pre-processed — no REPLACE needed here)
+      IF p_field_config.pattern IS NOT NULL THEN
+        IF NOT REGEXP_LIKE(p_field_value, p_field_config.pattern) THEN
+          IF p_field_config.pattern_error_code IS NOT NULL THEN
+            p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR(p_field_config.pattern_error_code, p_field_value);
+          ELSE
+            p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8021', p_field_config.field_name,
+                             p_field_value, p_field_config.pattern);
+          END IF;
+          RETURN FALSE;
+        END IF;
+      END IF;
+    END IF;
+
+    RETURN TRUE;
+  EXCEPTION
+    WHEN OTHERS THEN
+      p_error_msg := PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8022', p_field_config.field_name, SQLERRM);
+      RETURN FALSE;
+  END FN_VALIDATE_FIELD;
+
+----------------------------------------------------------------------------------------------------
+-- Build pre-processed field config cache from parsed JSON groups array
+-- Call once before the line loop to eliminate all JSON parsing and REPLACE ops from the inner loop
+----------------------------------------------------------------------------------------------------
+  FUNCTION FN_BUILD_GROUP_CACHE(
+    p_groups_array IN JSON_ARRAY_T
+  ) RETURN t_field_config_cache IS
+    v_cache        t_field_config_cache;
+    v_group_obj    JSON_OBJECT_T;
+    v_group_id     VARCHAR2(10);
+    v_fields_arr   JSON_ARRAY_T;
+    v_field_obj    JSON_OBJECT_T;
+    v_fc           t_field_config;
+    v_pattern      VARCHAR2(200);
+  BEGIN
+    FOR i IN 0 .. p_groups_array.get_size - 1 LOOP
+      v_group_obj  := JSON_OBJECT_T(p_groups_array.get(i));
+      v_group_id   := v_group_obj.get_String('groupId');
+      v_fields_arr := JSON_ARRAY_T(v_group_obj.get('fields'));
+
+      FOR j IN 0 .. v_fields_arr.get_size - 1 LOOP
+        v_field_obj := JSON_OBJECT_T(v_fields_arr.get(j));
+
+        v_fc.field_name         := v_field_obj.get_String('name');
+        v_fc.mandatory          := v_field_obj.get_Boolean('mandatory');
+        v_fc.min_length         := NVL(v_field_obj.get_Number('minLength'), 0);
+        v_fc.max_length         := NVL(v_field_obj.get_Number('maxLength'), 32767);
+        v_fc.data_type          := NULL;
+        v_fc.pattern            := NULL;
+        v_fc.pattern_error_code := NULL;
+        v_fc.fmt                := NULL;
+        v_fc.precision          := NULL;
+        v_fc.scale              := NULL;
+        v_fc.position           := v_field_obj.get_Number('position');
+
+        IF v_field_obj.has('dataType') THEN
+          v_fc.data_type := v_field_obj.get_String('dataType');
+        END IF;
+
+        IF v_field_obj.has('pattern') THEN
+          v_pattern := v_field_obj.get_String('pattern');
+          -- Resolve escape sequences once (avoids 6 REPLACEs per field per line)
+          v_pattern := REPLACE(v_pattern, '\\d', '\d');
+          v_pattern := REPLACE(v_pattern, '\\D', '\D');
+          v_pattern := REPLACE(v_pattern, '\\w', '\w');
+          v_pattern := REPLACE(v_pattern, '\\W', '\W');
+          v_pattern := REPLACE(v_pattern, '\\s', '\s');
+          v_pattern := REPLACE(v_pattern, '\\S', '\S');
+          v_fc.pattern := v_pattern;
+        END IF;
+
+        IF v_field_obj.has('patternErrorCode') THEN
+          v_fc.pattern_error_code := v_field_obj.get_String('patternErrorCode');
+        END IF;
+
+        IF v_field_obj.has('format') THEN
+          v_fc.fmt := v_field_obj.get_String('format');
+        END IF;
+
+        IF v_field_obj.has('precision') THEN
+          v_fc.precision := v_field_obj.get_Number('precision');
+        END IF;
+
+        IF v_field_obj.has('scale') THEN
+          v_fc.scale := v_field_obj.get_Number('scale');
+        END IF;
+
+        -- Store with key: group_id || '~' || 0-based field index within group
+        v_cache(v_group_id || '~' || TO_CHAR(j)) := v_fc;
+      END LOOP;
+
+      -- Store field count as sentinel (key: group_id || '~#') so the validate loop
+      -- can use a bounded FOR loop instead of an EXISTS check on every iteration
+      v_fc.position := v_fields_arr.get_size;
+      v_cache(v_group_id || '~#') := v_fc;
+    END LOOP;
+
+    RETURN v_cache;
+  END FN_BUILD_GROUP_CACHE;
+
+----------------------------------------------------------------------------------------------------
+-- Overload: Validate group line using pre-built config cache (no JSON, no REPLACE per line)
+----------------------------------------------------------------------------------------------------
+  FUNCTION FN_VALIDATE_GROUP_LINE(
+    p_fields        IN PKG_DTC_COMMON.t_fields_array,
+    p_group_id      IN VARCHAR2,
+    p_group_cache   IN t_field_config_cache,
+    p_line_number   IN NUMBER,
+    p_errors        OUT t_validation_errors
+  ) RETURN BOOLEAN IS
+    v_valid        BOOLEAN := TRUE;
+    v_fc           t_field_config;
+    v_field_value  VARCHAR2(4000);
+    v_error_msg    VARCHAR2(4000);
+    v_cache_key    VARCHAR2(20);
+    v_group_prefix VARCHAR2(15);   -- group_id || '~', computed once per call
+    v_field_count  PLS_INTEGER;    -- number of fields for this group (from sentinel)
+    v_part_idx     NUMBER;
+  BEGIN
+    -- Option B: p_errors NOT initialised here — ADD_ERROR does lazy init on first error,
+    -- eliminating 408k nested-table allocations on the valid-line happy path.
+    p_errors := NULL;
+
+    -- Option C: use sentinel entry (key: group_id || '~#') to check group existence
+    -- AND get field count in one lookup — avoids EXISTS check on every field iteration.
+    v_cache_key := p_group_id || '~#';
+    IF NOT p_group_cache.EXISTS(v_cache_key) THEN
+      IF NVL(LENGTH(p_group_id), 0) = 0 THEN
+        ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', 'groupId'), p_line_number, 'groupId', NULL,
+          p_field_position => 1);
+      ELSE
+        ADD_ERROR(p_errors, 'UNKNOWN_GROUP',
+          PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8027', p_group_id), p_line_number, 'groupId', p_group_id,
+          p_field_position => 1);
+      END IF;
+      RETURN FALSE;
+    END IF;
+
+    v_field_count  := p_group_cache(v_cache_key).position;  -- field count stored here by FN_BUILD_GROUP_CACHE
+    v_group_prefix := p_group_id || '~';                    -- compute once — saves one || per field in loop
+
+    -- Validate each field using cache (no JSON, no REPLACE, no EXISTS per iteration)
+    FOR v_idx IN 0 .. v_field_count - 1 LOOP
+      v_fc       := p_group_cache(v_group_prefix || TO_CHAR(v_idx));
+      v_part_idx := v_fc.position + 1;  -- +1: position 0 in JSON = field 1 in parsed line (0 is group ID)
+
+      IF p_fields.EXISTS(v_part_idx) THEN
+        v_field_value := p_fields(v_part_idx);
+      ELSE
+        v_field_value := NULL;
+      END IF;
+
+      IF NOT FN_VALIDATE_FIELD(v_field_value, v_fc, v_error_msg) THEN
+        IF NVL(LENGTH(v_field_value), 0) = 0 THEN
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY,
+            PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8044', v_fc.field_name),
+            p_line_number, v_fc.field_name, v_field_value,
+            p_field_position => v_part_idx);
+        ELSE
+          ADD_ERROR(p_errors, C_ERR_DATA_FIELD_MANDATORY, v_error_msg,
+            p_line_number, v_fc.field_name, v_field_value,
+            p_field_position => v_part_idx);
+        END IF;
+        v_valid := FALSE;
+      END IF;
+
+    END LOOP;
+
+    RETURN v_valid;
+  EXCEPTION
+    WHEN OTHERS THEN
+      ADD_ERROR(p_errors, 'GROUP_VALIDATION_ERROR',
+        PKG_DTC_COMMON.FN_FORMAT_ERROR('ERR8028', p_group_id, SQLERRM),
+        p_line_number, 'groupId', p_group_id, p_field_position => 1);
+      RETURN FALSE;
+  END FN_VALIDATE_GROUP_LINE;
+
+----------------------------------------------------------------------------------------------------
 -- Validate entire file (ORIGINAL - V1)
 ----------------------------------------------------------------------------------------------------
   FUNCTION FN_VALIDATE_FILE(
@@ -1429,8 +1886,8 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
         v_current_parent_lines := v_current_parent_lines + 1;
       END IF;
 
-      -- Validate this line's fields
-      IF NOT FN_VALIDATE_GROUP_LINE(p_lines(i), v_group_id, p_config_json, i, v_line_errors) THEN
+      -- Validate this line's fields (pass pre-parsed groups array to avoid JSON re-parse per line)
+      IF NOT FN_VALIDATE_GROUP_LINE(p_lines(i), v_group_id, v_groups_array, i, v_line_errors) THEN
         v_current_parent_valid := FALSE;
         v_overall_valid := FALSE;
 
@@ -1478,7 +1935,8 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
   FUNCTION FN_VALIDATE_FILE_V2(
     p_file_content IN CLOB,
     p_flow_type    IN VARCHAR2,
-    p_result       OUT t_file_validation_result
+    p_result       OUT t_file_validation_result,
+    p_lines        OUT DBMS_SQL.VARCHAR2A
   ) RETURN BOOLEAN IS
     v_config_json     CLOB;
     v_lines           DBMS_SQL.VARCHAR2A;
@@ -1500,8 +1958,9 @@ CREATE OR REPLACE EDITIONABLE PACKAGE BODY "MDQA_OWNER"."PKG_DTC_VALIDATION" AS
       RETURN FALSE;
     END IF;
 
-    -- Split file into lines
+    -- Split file into lines (once — returned to caller to avoid re-splitting in flow packages)
     v_lines := PKG_DTC_COMMON.FN_SPLIT_FILE_LINES(p_file_content);
+    p_lines := v_lines;
 
     IF v_lines.COUNT < 3 THEN
       ADD_ERROR(p_result.errors, 'FILE_TOO_SHORT',

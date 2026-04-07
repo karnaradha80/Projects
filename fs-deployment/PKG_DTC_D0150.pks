@@ -27,15 +27,16 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   -- NEW: Process file with integrated validation (V2)
   PROCEDURE PRC_PROCESS_FILE_V2(
     p_file_pk      IN NUMBER,
-    p_file_content IN CLOB,
+    p_lines        IN DBMS_SQL.VARCHAR2A,
     p_flow_type    IN VARCHAR2,
+    p_stage1_data  IN PKG_DTC_VALIDATION.t_file_validation_result,
     p_result       OUT PKG_DTC_VALIDATION.t_file_validation_result
   );
 
   -- Parse and insert group 288 (parent)
   FUNCTION FN_INSERT_GROUP_288(
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   ) RETURN NUMBER;
 
@@ -43,7 +44,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_289(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -51,7 +52,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   FUNCTION FN_INSERT_GROUP_290(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   ) RETURN NUMBER;
 
@@ -59,7 +60,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_291(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -67,7 +68,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_293(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -75,7 +76,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_295(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -83,7 +84,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_296(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -91,7 +92,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_762(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 
@@ -99,7 +100,7 @@ CREATE OR REPLACE EDITIONABLE PACKAGE "MDQA_OWNER"."PKG_DTC_D0150" AS
   PROCEDURE PRC_INSERT_GROUP_08A(
     p_parent_pk    IN NUMBER,
     p_file_pk      IN NUMBER,
-    p_line         IN VARCHAR2,
+    p_fields       IN PKG_DTC_COMMON.t_fields_array,
     p_rec_num      IN NUMBER
   );
 

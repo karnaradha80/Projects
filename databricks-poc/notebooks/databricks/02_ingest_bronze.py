@@ -13,7 +13,7 @@
 # MAGIC | 1 | `get_spark_session(extra_packages=...)` | Removed — `spark` pre-exists, JDBC drivers built-in |
 # MAGIC | 2 | `C:/Projects/.../lake/` | `dbfs:/utilitics/lake/` |
 # MAGIC | 3 | `df.show()` | `display(df)` |
-# MAGIC | 4 | Snapshot read via SQLite JDBC | Snapshot read from CSV on DBFS (Community Edition) |
+# MAGIC | 4 | Snapshot read via SQLite (pandas) | Snapshot read from Parquet on ADLS Gen2 |
 
 # COMMAND ----------
 
@@ -73,55 +73,17 @@ def ingest_to_bronze(name, raw_path, bronze_path, fmt="parquet"):
     return raw_count, written
 
 
-def ingest_snapshot_to_bronze(bronze_path):
-    """
-    Read snapshot from CSV on DBFS → cast types → write Bronze Delta.
-
-    Community Edition: reads CSV uploaded to DBFS.
-    Part 2 Azure: replace CSV read with JDBC read from Azure SQL:
-        raw_df = (spark.read.format("jdbc")
-            .option("url",      AZURE_SQL_CONFIG["jdbc_url"])
-            .option("dbtable",  AZURE_SQL_CONFIG["table_name"])
-            .option("driver",   AZURE_SQL_CONFIG["jdbc_driver"])
-            .option("user",     AZURE_SQL_CONFIG["username"])
-            .option("password", AZURE_SQL_CONFIG["password"])
-            .load())
-    """
-    csv_path = get_path("raw_snapshot_csv").replace("/network_asset_snapshot.csv", "")
-    print(f"\n  [Snapshot — CSV on DBFS]")
-    print(f"    Source: {csv_path}")
-    print(f"    Target: {bronze_path}")
-
-    raw_df = (spark.read
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .csv(csv_path)
-        .withColumn("snapshot_date",         F.to_date(F.col("snapshot_date")))
-        .withColumn("last_maintenance_date",  F.to_date(F.col("last_maintenance_date")))
-        .withColumn("capacity_mw",           F.col("capacity_mw").cast("double"))
-        .withColumn("voltage_kv",            F.col("voltage_kv").cast("double"))
-        .withColumn("location_lat",          F.col("location_lat").cast("double"))
-        .withColumn("location_lon",          F.col("location_lon").cast("double")))
-
-    raw_count = raw_df.count()
-    print(f"    Raw records: {raw_count:,}")
-
-    bronze_df = (raw_df
-        .withColumn("_ingestion_timestamp", F.lit(INGESTION_TS))
-        .withColumn("_source_file",         F.lit(csv_path))
-        .withColumn("_ingestion_date",      F.to_date(F.lit(INGESTION_TS))))
-
-    (bronze_df.write
-        .format("delta")
-        .mode("overwrite")
-        .partitionBy("_ingestion_date")
-        .save(bronze_path))
-
-    written = spark.read.format("delta").load(bronze_path).count()
-    dt      = DeltaTable.forPath(spark, bronze_path)
-    version = dt.history(1).collect()[0]["version"]
-    print(f"    Written: {written:,} records (Delta version: {version})")
-    return raw_count, written
+    # Note: snapshot uses the same ingest_to_bronze() as the other sources.
+    # The snapshot Parquet already has correct native types (DateType, DoubleType)
+    # because 01_generate_data.py writes it with an explicit schema.
+    # Future: replace with JDBC read from Azure SQL:
+    #   raw_df = (spark.read.format("jdbc")
+    #       .option("url",      AZURE_SQL_CONFIG["jdbc_url"])
+    #       .option("dbtable",  AZURE_SQL_CONFIG["table_name"])
+    #       .option("driver",   AZURE_SQL_CONFIG["jdbc_driver"])
+    #       .option("user",     AZURE_SQL_CONFIG["username"])
+    #       .option("password", AZURE_SQL_CONFIG["password"])
+    #       .load())
 
 # COMMAND ----------
 
@@ -136,7 +98,10 @@ results["timeseries"] = ingest_to_bronze(
     get_path("raw_timeseries"),
     get_path("bronze_timeseries"))
 
-results["snapshot"] = ingest_snapshot_to_bronze(get_path("bronze_snapshot"))
+results["snapshot"] = ingest_to_bronze(
+    "Snapshot",
+    get_path("raw_snapshot"),
+    get_path("bronze_snapshot"))
 
 results["file_data"] = ingest_to_bronze(
     "File Data",

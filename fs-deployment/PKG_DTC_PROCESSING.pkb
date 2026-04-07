@@ -183,6 +183,7 @@ create or replace PACKAGE BODY              "PKG_DTC_PROCESSING" AS
     v_validation_audit_pk   NUMBER;
     v_validation_result     PKG_DTC_VALIDATION.t_file_validation_result;
     v_staging_result        PKG_DTC_VALIDATION.t_file_validation_result;
+    v_split_lines           DBMS_SQL.VARCHAR2A;  -- Pre-split lines reused across validation and staging
     v_final_status          VARCHAR2(20);
     v_initial_audit_status  VARCHAR2(20);
     v_validation_audit_status VARCHAR2(20);
@@ -237,7 +238,8 @@ create or replace PACKAGE BODY              "PKG_DTC_PROCESSING" AS
       IF NOT PKG_DTC_VALIDATION.FN_VALIDATE_FILE_V2(
         p_file_content => p_file_content,
         p_flow_type    => p_flow_type,
-        p_result       => v_validation_result
+        p_result       => v_validation_result,
+        p_lines        => v_split_lines
       ) THEN
         -- Validation failed but we still have partial results to process
         NULL;
@@ -394,17 +396,19 @@ create or replace PACKAGE BODY              "PKG_DTC_PROCESSING" AS
       BEGIN
         IF p_flow_type = 'D0010' THEN
           PKG_DTC_D0010.PRC_PROCESS_FILE_V2(
-            p_file_pk      => v_file_pk,
-            p_file_content => p_file_content,
-            p_flow_type    => p_flow_type,
-            p_result       => v_staging_result
+            p_file_pk     => v_file_pk,
+            p_lines       => v_split_lines,
+            p_flow_type   => p_flow_type,
+            p_stage1_data => v_validation_result,
+            p_result      => v_staging_result
           );
         ELSIF p_flow_type = 'D0150' THEN
           PKG_DTC_D0150.PRC_PROCESS_FILE_V2(
-            p_file_pk      => v_file_pk,
-            p_file_content => p_file_content,
-            p_flow_type    => p_flow_type,
-            p_result       => v_staging_result
+            p_file_pk     => v_file_pk,
+            p_lines       => v_split_lines,
+            p_flow_type   => p_flow_type,
+            p_stage1_data => v_validation_result,
+            p_result      => v_staging_result
           );
         ELSE
           -- Unsupported flow type

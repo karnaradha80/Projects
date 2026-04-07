@@ -13,6 +13,7 @@ from automation.pipeline_runner import (
     get_status,
     get_current_runtime,
     set_runtime,
+    clear_data,
 )
 
 # ============================================================
@@ -93,6 +94,24 @@ TOOLS = [
         },
     },
     {
+        "name": "clear_data",
+        "description": (
+            "Clear pipeline data from the lake folder. "
+            "Use 'clear data' or 'clear our data' to wipe only Utilitics data (keeps vendor folder). "
+            "Use 'clear all' or 'clear all data' to wipe everything including vendor forecast output."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_vendor": {
+                    "type": "boolean",
+                    "description": "If true, also deletes vendor_forecast_output folder. Default false.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "set_runtime",
         "description": (
             "Switch the pipeline runtime between local and databricks. "
@@ -142,6 +161,10 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
             "summary": f"Current runtime: {runtime}",
             "runtime": runtime,
         }
+
+    elif tool_name == "clear_data":
+        include_vendor = tool_input.get("include_vendor", False)
+        return clear_data(include_vendor=include_vendor)
 
     elif tool_name == "set_runtime":
         return set_runtime(tool_input["runtime"])

@@ -174,7 +174,7 @@
 <body>
 
 <h1>Utilitics — Azure Databricks Data Sharing POC</h1>
-<p class="subtitle">Architecture Overview &amp; Development Roadmap &nbsp;·&nbsp; Last updated: 2026-03-19 (Section 14 + Runtime Flag complete)</p>
+<p class="subtitle">Architecture Overview &amp; Development Roadmap &nbsp;·&nbsp; Last updated: 2026-04-07 (Part 2 Azure — Unity Catalog + notebooks deployed)</p>
 
 <!-- Legend -->
 <div class="legend">
@@ -205,8 +205,8 @@
   </div>
   <div class="status-card">
     <div class="card-title yellow">Overall Progress</div>
-    <div class="card-val yellow">Part 1 Done</div>
-    <div class="card-sub">Local Medallion + Delta Sharing complete</div>
+    <div class="card-val yellow">Part 2 Active</div>
+    <div class="card-sub">Azure infra + Unity Catalog done · Pipeline next</div>
   </div>
 </div>
 
@@ -215,7 +215,7 @@
      ───────────────────────────────────────────── -->
 <div class="section-title">
   Overall Project Roadmap
-  <span class="badge badge-you">YOU ARE HERE ↓</span>
+  <span class="badge badge-you">YOU ARE HERE → Part 2 Azure Pipeline</span>
 </div>
 
 <div class="diagram-wrap">
@@ -249,26 +249,26 @@ flowchart LR
         B1-->B2-->B3-->B4
     end
 
-    subgraph P2["PART 2 — Utilitics Azure Cloud 🟣"]
+    subgraph P2["PART 2 — Utilitics Azure Cloud 🟡 IN PROGRESS"]
         direction TB
-        D1["☁️ ADLS Gen2\n(Data Lake)"]
-        D2["🏭 Azure Data Factory\n(Orchestration)"]
-        D3["🔷 Azure Databricks\n(Spark Clusters)"]
-        D4["🗃️ Azure SQL\n(replaces SQLite)"]
-        D5["🌐 Databricks\nDelta Sharing"]
-        D1-->D2-->D3-->D4
-        D3-->D5
+        D1["✅ ADLS Gen2\nstpocadls4417\nraw-data + processed-data"]
+        D2["✅ Databricks Workspace\ndbw-poc-datasharing\nPremium + Unity Catalog"]
+        D3["✅ Cluster Running\npoc-single-node\nStandard_E2s_v3"]
+        D4["✅ Notebooks Deployed\n9 notebooks → /POC/\nabfss:// paths"]
+        D5["⏳ Pipeline Run\n01→05 notebooks\nNEXT STEP"]
+        D6["⏳ Delta Sharing\nUnity Catalog shares\nPhase 8"]
+        D1-->D2-->D3-->D4-->D5-->D6
     end
 
     P1  -->|"Done ✅"| P1C
-    P1C -->|"Next →"| P1B
-    P1B -->|"Migrate →"| P2
-    P1C -->|"Migrate →"| P2
+    P1C -->|"Done ✅"| P1B
+    P1B -->|"Migrating →"| P2
+    P1C -->|"Migrating →"| P2
 
     style P1  fill:#0d1f0d,stroke:#238636,color:#3fb950
     style P1C fill:#0d1f0d,stroke:#238636,color:#3fb950
     style P1B fill:#0d1929,stroke:#1f6feb,color:#58a6ff
-    style P2  fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style P2  fill:#1a1200,stroke:#d29922,color:#f7c948
 </div>
 </div>
 
@@ -360,8 +360,8 @@ flowchart TD
      DELTA SHARING DETAIL
      ───────────────────────────────────────────── -->
 <div class="section-title">
-  Utilitics Delta Sharing — Both Options
-  <span class="badge badge-done">DONE</span>
+  Utilitics Delta Sharing — Both Options (Unidirectional Protocol)
+  <span class="badge badge-done">DONE (Local Simulation)</span>
 </div>
 
 <div class="diagram-wrap">
@@ -379,24 +379,30 @@ flowchart LR
     end
 
     subgraph OA["Option A — Python Simulation"]
-        A1["simulate_sharing.py\nUtilitics PySpark reads Gold\nVendor Pandas analysis\nVendor writes back to Utilitics"]
+        A1["simulate_sharing.py\nUtilitics shares Gold → Vendor reads\nVendor writes forecasts back\n⚠️ write-back = custom file write\nnot native Delta Sharing protocol"]
     end
 
     subgraph OB["Option B — OSS Server"]
         direction TB
         S["Delta Sharing Server\nJAR on localhost:8080\nserver_config.yaml\nBearer token auth"]
-        C["consume_shared_data.py\ndelta_sharing Python client\nrecipient_profile.json\nReal HTTP protocol"]
+        C["consume_shared_data.py\ndelta_sharing Python client\nrecipient_profile.json\nReal HTTP protocol — READ ONLY"]
         S-->C
+    end
+
+    subgraph NOTE["⚠️ Protocol Note"]
+        N1["Delta Sharing = UNIDIRECTIONAL\nProvider → Recipient (read-only)\nVendor write-back needs:\n• Separate Delta Share (reverse)\n• OR REST API call back"]
     end
 
     GOLD --> LAUNCHER
     LAUNCHER -->|"A"| OA
     LAUNCHER -->|"B"| OB
+    OB --> NOTE
 
-    style GOLD  fill:#0d1f0d,stroke:#238636,color:#3fb950
-    style OA    fill:#0d1929,stroke:#1f6feb,color:#58a6ff
-    style OB    fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style GOLD     fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style OA       fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style OB       fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
     style LAUNCHER fill:#111,stroke:#555,color:#ccc
+    style NOTE     fill:#2a1500,stroke:#d29922,color:#f7c948
 </div>
 </div>
 
@@ -436,7 +442,7 @@ flowchart TD
         direction TB
         D1["Databricks REST API\nPOST /api/2.1/jobs/runs/submit\nBearer token auth"]
         D2["notebooks/databricks/run_pipeline\n(dbutils.notebook.run)"]
-        D3["00_config → DBFS paths\n01 → 05 notebooks\ndisplay() + no SparkSession"]
+        D3["00_config → abfss:// paths\n01 → 05 notebooks\ndisplay() + no SparkSession"]
         D4["Poll status every 15s\nuntil TERMINATED"]
         D5["dbutils.notebook.exit\n'SUCCESS' / 'FAILED'"]
         D1-->D2-->D3-->D4-->D5
@@ -444,7 +450,7 @@ flowchart TD
 
     subgraph STORAGE["Data Storage"]
         S1["LOCAL\nlake/ on C: drive\nSQLite assets.db"]
-        S2["DATABRICKS\ndbfs:/utilitics/lake/\nCSV on DBFS"]
+        S2["AZURE DATABRICKS\nabfss://raw-data@stpocadls4417\nabfss://processed-data@stpocadls4417"]
     end
 
     FLAG -->|"local"| LOCAL
@@ -522,58 +528,48 @@ flowchart LR
      ───────────────────────────────────────────── -->
 <div class="section-title">
   Utilitics — Part 2 Azure Cloud Migration
-  <span class="badge badge-future">FUTURE</span>
+  <span class="badge badge-you">IN PROGRESS</span>
 </div>
 
 <div class="diagram-wrap">
 <div class="mermaid">
 flowchart TD
-    subgraph INGEST["Utilitics Data Ingestion"]
-        I1["Azure IoT Hub\n(Smart Meters)"]
-        I2["Azure SQL DB\n(replaces SQLite)"]
-        I3["Azure Blob Storage\n(ERM Forecasts)"]
+    subgraph DONE["✅ COMPLETED"]
+        I1["✅ Resource Group\nrg-databricks-poc (UK South)"]
+        I2["✅ ADLS Gen2\nstpocadls4417\nraw-data + processed-data"]
+        I3["✅ Databricks Premium\ndbw-poc-datasharing\nUnity Catalog enabled"]
+        I4["✅ Secret Scope\npoc-secrets\nstorage key secured"]
+        I5["✅ Cluster\npoc-single-node\nE2s_v3 · 10min auto-terminate"]
+        I6["✅ Unity Catalog\ndata_sharing_poc catalog\nbronze/silver/gold schemas"]
+        I7["✅ Notebooks Deployed\n9 notebooks in /POC/\nabfss:// paths · no mounts"]
     end
 
-    subgraph ADF["Azure Data Factory\n(Orchestration — replaces run_pipeline.py)"]
-        P1["Copy Activity\n→ ADLS Gen2 Raw"]
-        P2["Databricks Notebook Activity\nBronze Ingestion"]
-        P3["Databricks Notebook Activity\nSilver Transform"]
-        P4["Databricks Notebook Activity\nGold Aggregation"]
-        P5["Databricks Notebook Activity\nValidation"]
-        P1-->P2-->P3-->P4-->P5
+    subgraph NEXT["⏳ NEXT STEPS"]
+        N1["⏳ Run Pipeline on Azure\n01_generate_data → 05_validate\n266K records on ADLS"]
+        N2["⏳ Register Unity Catalog Tables\nCREATE TABLE with LOCATION\nafter pipeline run"]
     end
 
-    subgraph ADLS["ADLS Gen2\n(Data Lake Storage)"]
-        L1["raw/"]
-        L2["bronze/"]
-        L3["silver/"]
-        L4["gold/"]
+    subgraph PHASE8["🟣 PHASE 8 — Delta Sharing"]
+        P1["Real Unity Catalog Share\nProvider → Vendor (read-only)\nToken-based access"]
+        P2["Vendor Write-back\nSeparate share OR REST API\nDesign decision pending"]
     end
 
-    subgraph DBX["Azure Databricks\n(Spark Clusters)"]
-        D1["notebooks/databricks/\n01 → 05 ported scripts\n3 changes per script:\n• DBFS paths\n• dbutils.widgets\n• display()"]
+    subgraph PHASE9["🟣 PHASE 9 — Workflows"]
+        W1["Databricks Workflows DAG\nScheduled pipeline\nReplaces manual run"]
     end
 
-    subgraph SHARE["Databricks Delta Sharing\n(replaces OSS server)"]
-        S1["Unity Catalog\nShare + Recipient\nToken-based access"]
+    subgraph PHASE10["🟣 PHASE 10 — ChatOps Azure"]
+        C1["Azure Functions webhook\nPermanent URL (no ngrok)\nSame Claude AI + WhatsApp"]
+        C2["Azure SQL\nReplaces SQLite\nOne connection string change"]
     end
 
-    subgraph CHATOPS["Utilitics ChatOps (unchanged)"]
-        C1["WhatsApp → Twilio\n→ Azure Function\n→ Claude AI\n→ ADF trigger"]
-    end
+    DONE --> NEXT --> PHASE8 --> PHASE9 --> PHASE10
 
-    INGEST --> ADF
-    ADF <--> ADLS
-    ADF --> DBX
-    DBX --> SHARE
-    CHATOPS --> ADF
-
-    style INGEST  fill:#111,stroke:#555,color:#ccc
-    style ADF     fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
-    style ADLS    fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
-    style DBX     fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
-    style SHARE   fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
-    style CHATOPS fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style DONE    fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style NEXT    fill:#1a1200,stroke:#d29922,color:#f7c948
+    style PHASE8  fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style PHASE9  fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
+    style PHASE10 fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
 </div>
 </div>
 
@@ -603,7 +599,22 @@ flowchart TD
 </div>
 
 <div class="progress-section">
-  <div class="progress-label"><span>Part 2 — Azure Cloud Migration</span><span style="color:#bc8cff">0%</span></div>
+  <div class="progress-label"><span>Part 2 — Azure Infrastructure &amp; Unity Catalog</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 2 — Azure Pipeline Run (01→05 notebooks) <span class="you-are-here">YOU ARE HERE</span></span><span style="color:#f7c948">0%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill yellow" style="width:0%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 2 — Delta Sharing (Phase 8)</span><span style="color:#bc8cff">0%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill purple" style="width:0%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 2 — Workflows + Azure Functions ChatOps (Phase 9-10)</span><span style="color:#bc8cff">0%</span></div>
   <div class="progress-bar-bg"><div class="progress-bar-fill purple" style="width:0%"></div></div>
 </div>
 
@@ -630,14 +641,16 @@ flowchart TD
         N4["04_aggregate_gold.py ✅"]
         N5["05_validate.py ✅"]
         N6["run_pipeline.py ✅"]
-        subgraph DBX["databricks/ ✅  (Section 14)"]
-            DB0["00_config.py\nDBFS paths"]
-            DB1["01_generate_data.py"]
-            DB2["02_ingest_bronze.py"]
+        subgraph DBX["databricks/ ✅  (Uploaded to /POC/ on Azure)"]
+            DB0["00_config.py\nabfss:// paths\npoc-secrets auth"]
+            DB1["01_generate_data.py\nSnapshot → Parquet"]
+            DB2["02_ingest_bronze.py\nParquet ingest"]
             DB3["03_transform_silver.py"]
             DB4["04_aggregate_gold.py"]
             DB5["05_validate.py"]
             DB6["run_pipeline.py\ndbutils.notebook.run"]
+            DB7["mount_storage.py\n(not used — Unity Catalog)"]
+            DB8["create_catalog.py\ndata_sharing_poc\nbronze/silver/gold"]
         end
     end
 

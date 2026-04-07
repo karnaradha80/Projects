@@ -177,6 +177,59 @@ def get_current_runtime():
         return "unknown"
 
 
+def clear_data(include_vendor=False):
+    """Clear lake data. include_vendor=False keeps vendor_forecast_output."""
+    import shutil
+    project_root = PROJECT_ROOT
+
+    folders = [
+        os.path.join(project_root, "lake", "raw"),
+        os.path.join(project_root, "lake", "bronze"),
+        os.path.join(project_root, "lake", "silver"),
+        os.path.join(project_root, "lake", "gold"),
+        os.path.join(project_root, "lake", "sources"),
+        os.path.join(project_root, "lake", "spark-warehouse"),
+    ]
+
+    # If include_vendor=False, skip vendor_forecast_output inside gold
+    cleared = []
+    skipped = []
+
+    for folder in folders:
+        if not os.path.exists(folder):
+            continue
+
+        if not include_vendor and folder.endswith("gold"):
+            # Clear gold subfolders except vendor_forecast_output
+            for item in os.listdir(folder):
+                if item == "vendor_forecast_output":
+                    skipped.append(item)
+                    continue
+                item_path = os.path.join(folder, item)
+                shutil.rmtree(item_path, ignore_errors=True)
+                cleared.append(f"gold/{item}")
+        else:
+            shutil.rmtree(folder, ignore_errors=True)
+            cleared.append(folder.split(os.sep)[-1])
+
+    # Clear state file
+    if os.path.exists(STATE_FILE):
+        os.remove(STATE_FILE)
+
+    if include_vendor:
+        summary = "All data cleared including vendor folder. Ready for fresh pipeline run."
+    else:
+        summary = "Utilitics data cleared. Vendor folder kept intact. Ready for fresh pipeline run."
+
+    return {
+        "action":  "clear_data",
+        "success": True,
+        "summary": summary,
+        "cleared": cleared,
+        "skipped": skipped,
+    }
+
+
 def set_runtime(runtime):
     """Toggle RUNTIME flag in pipeline_config.py between local and databricks."""
     runtime = runtime.lower().strip()

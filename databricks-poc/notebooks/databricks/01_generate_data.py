@@ -7,16 +7,16 @@
 # MAGIC
 # MAGIC Generates synthetic data for all 3 SoW categories:
 # MAGIC - Time Series: Smart meter readings (168,000 records)
-# MAGIC - Snapshot: Network asset status → CSV on DBFS (14,000 records)
+# MAGIC - Snapshot: Network asset status → Parquet on ADLS Gen2 (14,000 records)
 # MAGIC - File Data: ERM demand forecasts (84,000 records)
 # MAGIC
 # MAGIC ### Changes from local version
-# MAGIC | # | Local | Databricks |
-# MAGIC |---|-------|-----------|
+# MAGIC | # | Local | Azure Databricks |
+# MAGIC |---|-------|-----------------|
 # MAGIC | 1 | `get_spark_session()` | Removed — `spark` pre-exists |
-# MAGIC | 2 | `C:/Projects/.../lake/` | `dbfs:/utilitics/lake/` |
+# MAGIC | 2 | `C:/Projects/.../lake/` | `/mnt/raw-data/` and `/mnt/processed-data/` |
 # MAGIC | 3 | `df.show()` | `display(df)` |
-# MAGIC | 4 | Snapshot → SQLite via SQLAlchemy | Snapshot → CSV on DBFS |
+# MAGIC | 4 | Snapshot → SQLite via SQLAlchemy | Snapshot → Parquet on ADLS Gen2 |
 
 # COMMAND ----------
 
@@ -111,11 +111,11 @@ print(f"      Generated: {ts_count:,} records → {get_path('raw_timeseries')}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 2. Snapshot — Network Assets (CSV on DBFS)
+# MAGIC %md ## 2. Snapshot — Network Assets (Parquet on ADLS Gen2)
 # MAGIC
 # MAGIC **Local version** wrote to SQLite via SQLAlchemy.
-# MAGIC **Community Edition** writes to CSV on DBFS (no external DB needed).
-# MAGIC **Part 2 Azure** will write to Azure SQL via JDBC.
+# MAGIC **Azure Databricks** writes to Parquet on ADLS Gen2 (`/mnt/raw-data/snapshot/`).
+# MAGIC **Future enhancement**: write to Azure SQL via JDBC instead.
 
 # COMMAND ----------
 
@@ -125,7 +125,7 @@ print(f"      {DATA_CONFIG['snapshot']['num_assets']} assets × "
 
 schema_snap = StructType([
     StructField("asset_id",              StringType(),  False),
-    StructField("snapshot_date",         StringType(),  False),   # stored as string in CSV
+    StructField("snapshot_date",         DateType(),    False),
     StructField("asset_type",            StringType(),  False),
     StructField("status",                StringType(),  False),
     StructField("capacity_mw",           DoubleType(),  True),
@@ -133,9 +133,11 @@ schema_snap = StructType([
     StructField("location_lat",          DoubleType(),  True),
     StructField("location_lon",          DoubleType(),  True),
     StructField("parent_asset_id",       StringType(),  True),
-    StructField("last_maintenance_date", StringType(),  True),
+    StructField("last_maintenance_date", DateType(),    True),
     StructField("firmware_version",      StringType(),  True),
 ])
+
+from datetime import date as date_type
 
 asset_types    = ["TRANSFORMER", "SWITCH", "CABLE", "METER_POINT", "SUBSTATION"]
 statuses       = ["ACTIVE", "INACTIVE", "MAINTENANCE", "DECOMMISSIONED"]
@@ -147,13 +149,13 @@ num_assets   = DATA_CONFIG["snapshot"]["num_assets"]
 num_snapshots= DATA_CONFIG["snapshot"]["num_snapshots"]
 
 for snap_day in range(num_snapshots):
-    snap_date = str(BASE_DATE.date() + timedelta(days=snap_day))
+    snap_date = (BASE_DATE + timedelta(days=snap_day)).date()
     for asset_idx in range(num_assets):
-        asset_id = f"AST-{asset_idx:07d}"
-        a_type   = asset_types[asset_idx % len(asset_types)]
-        status   = random.choices(statuses, status_weights)[0]
-        maint_date = str(BASE_DATE.date() - timedelta(days=random.randint(1, 365)))
-        parent = f"AST-{random.randint(0, 100):07d}" if random.random() > 0.3 else None
+        asset_id   = f"AST-{asset_idx:07d}"
+        a_type     = asset_types[asset_idx % len(asset_types)]
+        status     = random.choices(statuses, status_weights)[0]
+        maint_date = (BASE_DATE - timedelta(days=random.randint(1, 365))).date()
+        parent     = f"AST-{random.randint(0, 100):07d}" if random.random() > 0.3 else None
 
         snap_rows.append((
             asset_id, snap_date, a_type, status,
@@ -168,10 +170,9 @@ for snap_day in range(num_snapshots):
 snap_df    = spark.createDataFrame(snap_rows, schema_snap)
 snap_count = snap_df.count()
 
-# Write as CSV to DBFS (single file for easy reading in bronze step)
-snap_df.coalesce(1).write.mode("overwrite").option("header", "true").csv(
-    get_path("raw_snapshot_csv").replace("/network_asset_snapshot.csv", ""))
-print(f"      Generated: {snap_count:,} records → {get_path('raw_snapshot_csv')}")
+# Write as Parquet to ADLS Gen2 (native types — no CHAR(0) issues)
+snap_df.write.mode("overwrite").parquet(get_path("raw_snapshot"))
+print(f"      Generated: {snap_count:,} records → {get_path('raw_snapshot')}")
 
 # COMMAND ----------
 
