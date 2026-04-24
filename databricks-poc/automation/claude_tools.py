@@ -14,6 +14,7 @@ from automation.pipeline_runner import (
     get_current_runtime,
     set_runtime,
     clear_data,
+    run_ci_check,
 )
 
 # ============================================================
@@ -112,6 +113,18 @@ TOOLS = [
         },
     },
     {
+        "name": "run_ci",
+        "description": (
+            "Run CI checks — syntax and secrets scan on all Python files. "
+            "Use when the user says 'run tests', 'run ci', 'check code', 'syntax check', etc."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "set_runtime",
         "description": (
             "Switch the pipeline runtime between local and databricks. "
@@ -165,6 +178,9 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
     elif tool_name == "clear_data":
         include_vendor = tool_input.get("include_vendor", False)
         return clear_data(include_vendor=include_vendor)
+
+    elif tool_name == "run_ci":
+        return run_ci_check()
 
     elif tool_name == "set_runtime":
         return set_runtime(tool_input["runtime"])

@@ -47,9 +47,43 @@ def add_bronze_metadata(df):
     )
 
 
+def ingest_csv_to_bronze(name, raw_dir, bronze_path):
+    """
+    Read raw CSV file(s) and write to Bronze Delta table.
+    Used for Time Series — simulates smart meter CSV file drops from SCADA systems.
+    """
+    import os
+    csv_file = os.path.join(raw_dir, "meter_readings.csv")
+    print(f"\n  [{name} — CSV]")
+    print(f"    Source: {csv_file}")
+    print(f"    Target: {bronze_path}")
+
+    raw_df = (spark.read
+        .option("header", "true")
+        .option("inferSchema", "true")
+        .csv(csv_file))
+    raw_count = raw_df.count()
+    print(f"    Raw records: {raw_count:,}")
+
+    bronze_df = add_bronze_metadata(raw_df)
+
+    (bronze_df.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("_ingestion_date")
+        .save(bronze_path))
+
+    written = spark.read.format("delta").load(bronze_path).count()
+    dt = DeltaTable.forPath(spark, bronze_path)
+    version = dt.history(1).collect()[0]["version"]
+
+    print(f"    Written: {written:,} records (Delta version: {version})")
+    return raw_count, written
+
+
 def ingest_to_bronze(name, raw_path, bronze_path):
     """Read raw Parquet data and write to Bronze Delta table."""
-    print(f"\n  [{name}]")
+    print(f"\n  [{name} — Parquet]")
     print(f"    Source: {raw_path}")
     print(f"    Target: {bronze_path}")
 
@@ -84,7 +118,7 @@ def ingest_snapshot_to_bronze(bronze_path):
     in DB_CONFIG switch from SQLite to Azure SQL.
     """
     cfg = get_db_config()
-    print(f"\n  [Snapshot — SQLite]")
+    print(f"\n  [Snapshot — SQLite DB]")
     print(f"    Source: {cfg['jdbc_url']}  table={cfg['table_name']}")
     print(f"    Target: {bronze_path}")
 
@@ -130,7 +164,7 @@ def ingest_snapshot_to_bronze(bronze_path):
 # ============================================================
 results = {}
 
-results["timeseries"] = ingest_to_bronze(
+results["timeseries"] = ingest_csv_to_bronze(
     "Time Series", get_path("raw_timeseries"), get_path("bronze_timeseries"))
 
 results["snapshot"] = ingest_snapshot_to_bronze(get_path("bronze_snapshot"))

@@ -174,7 +174,7 @@
 <body>
 
 <h1>Utilitics — Azure Databricks Data Sharing POC</h1>
-<p class="subtitle">Architecture Overview &amp; Development Roadmap &nbsp;·&nbsp; Last updated: 2026-04-07 (Part 2 Azure — Unity Catalog + notebooks deployed)</p>
+<p class="subtitle">Architecture Overview &amp; Development Roadmap &nbsp;·&nbsp; Last updated: 2026-04-07 (CI/CD + 3 source formats: CSV · SQLite · Parquet)</p>
 
 <!-- Legend -->
 <div class="legend">
@@ -204,9 +204,14 @@
     <div class="card-sub">Gen → Bronze → Silver → Gold → Validate</div>
   </div>
   <div class="status-card">
+    <div class="card-title blue">Claude AI Tools</div>
+    <div class="card-val blue">7 tools</div>
+    <div class="card-sub">run_pipeline · run_step · run_sharing · get_status · get_runtime · set_runtime · clear_data · run_ci</div>
+  </div>
+  <div class="status-card">
     <div class="card-title yellow">Overall Progress</div>
     <div class="card-val yellow">Part 2 Active</div>
-    <div class="card-sub">Azure infra + Unity Catalog done · Pipeline next</div>
+    <div class="card-sub">CI/CD live · Azure infra done · Pipeline next</div>
   </div>
 </div>
 
@@ -223,7 +228,7 @@
 flowchart LR
     subgraph P1["PART 1 — Utilitics Local Development ✅"]
         direction TB
-        A1["🗄️ Data Sources\n(Parquet + SQLite)"]
+        A1["🗄️ Data Sources\n(CSV + SQLite + Parquet)"]
         A2["🥉 Bronze Layer\n(Delta Lake)"]
         A3["🥈 Silver Layer\n(Delta Lake)"]
         A4["🥇 Gold Layer\n(Delta Lake)"]
@@ -243,10 +248,12 @@ flowchart LR
     subgraph P1B["PART 1 — Utilitics Automation ✅"]
         direction TB
         B1["📱 WhatsApp\n(Twilio)"]
-        B2["🤖 Claude AI\n(Tool Use)"]
+        B2["🤖 Claude AI\n7 Tools"]
         B3["⚡ FastAPI\nWebhook Server"]
         B4["▶️ Pipeline\nOrchestrator"]
+        B5["🔁 CI/CD\nGitHub Actions\n+ Nightly Build"]
         B1-->B2-->B3-->B4
+        B4---B5
     end
 
     subgraph P2["PART 2 — Utilitics Azure Cloud 🟡 IN PROGRESS"]
@@ -283,25 +290,26 @@ flowchart LR
 <div class="diagram-wrap">
 <div class="mermaid">
 flowchart TD
-    subgraph SRC["DATA SOURCES"]
-        TS["📊 Smart Meter Readings\nParquet files  ·  data_source: UTILITICS_METERING\n500 meters × 7 days × 48 reads\n168,000 records"]
-        SS["🗄️ Network Asset Snapshot\nSQLite DB — assets.db\n2,000 assets × 7 snapshots\n14,000 records"]
-        FS["📁 ERM Demand Forecasts\nParquet files\n500 forecasts × 168 hours\n84,000 records"]
+    subgraph SRC["DATA SOURCES — 3 Different Formats"]
+        TS["📊 Smart Meter Readings\n📄 CSV file drop  ·  meter_readings.csv\n500 meters × 7 days × 48 reads\n168,000 records"]
+        SS["🗄️ Network Asset Snapshot\n🗃️ SQLite DB — assets.db\n2,000 assets × 7 snapshots\n14,000 records"]
+        FS["📁 ERM Demand Forecasts\n📦 Parquet files\n500 forecasts × 168 hours\n84,000 records"]
     end
 
     subgraph GEN["01_generate_data.py"]
-        G1["Generate synthetic data\nRealistic UK patterns\nSQLAlchemy → SQLite\nParquet writes"]
+        G1["Generate synthetic data\nRealistic UK patterns\nTime Series → CSV\nSnapshot → SQLite\nForecasts → Parquet"]
     end
 
     subgraph BRZ["BRONZE LAYER — Delta Lake"]
-        BT["bronze/timeseries\n168,000 rows\ndata_source: UTILITICS_METERING\nPartitioned by date"]
-        BS["bronze/snapshot\n14,000 rows\nRead via Spark JDBC\nDates + Doubles cast"]
-        BF["bronze/files\n84,000 rows\nRaw + metadata cols\nPartitioned by date"]
+        BT["bronze/timeseries\n168,000 rows\nSource: CSV (ingest_csv_to_bronze)\nPartitioned by date"]
+        BS["bronze/snapshot\n14,000 rows\nSource: SQLite (pandas + sqlalchemy)\nDates + Doubles cast"]
+        BF["bronze/files\n84,000 rows\nSource: Parquet (ingest_to_bronze)\nPartitioned by date"]
     end
 
     subgraph ING["02_ingest_bronze.py"]
-        I1["Add metadata columns\n_ingestion_timestamp\n_source_file\n_ingestion_date"]
-        I2["SQLite JDBC\n+ org.xerial:sqlite-jdbc\nDate/Float type casts"]
+        I1["ingest_csv_to_bronze\n→ reads CSV with header+inferSchema"]
+        I2["ingest_snapshot_to_bronze\n→ SQLite via pandas/sqlalchemy\nDate/Float type casts"]
+        I3["ingest_to_bronze\n→ reads native Parquet"]
     end
 
     subgraph SLV["SILVER LAYER — Delta Lake"]
@@ -430,8 +438,8 @@ flowchart TD
     subgraph LOCAL["RUNTIME = 'local'  ✅"]
         direction TB
         L1["notebooks/run_pipeline.py\n(subprocess orchestrator)"]
-        L2["01_generate_data.py\n→ Parquet + SQLite"]
-        L3["02_ingest_bronze.py\n→ Spark JDBC SQLite"]
+        L2["01_generate_data.py\n→ CSV + SQLite + Parquet"]
+        L3["02_ingest_bronze.py\n→ CSV · SQLite · Parquet readers"]
         L4["03_transform_silver.py"]
         L5["04_aggregate_gold.py"]
         L6["05_validate.py\n19/19 checks"]
@@ -449,8 +457,8 @@ flowchart TD
     end
 
     subgraph STORAGE["Data Storage"]
-        S1["LOCAL\nlake/ on C: drive\nSQLite assets.db"]
-        S2["AZURE DATABRICKS\nabfss://raw-data@stpocadls4417\nabfss://processed-data@stpocadls4417"]
+        S1["LOCAL\ndata/lake/sources/timeseries_csv/  (CSV)\ndata/lake/sources/assets.db  (SQLite)\ndata/lake/sources/files_parquet/  (Parquet)\ndata/lake/bronze|silver|gold  (Delta)"]
+        S2["AZURE DATABRICKS\nabfss://raw-data@stpocadls4417\nabfss://processed-data@stpocadls4417\n→ Delta Lake tables"]
     end
 
     FLAG -->|"local"| LOCAL
@@ -491,7 +499,7 @@ flowchart LR
     end
 
     subgraph CLAUDE["Claude AI\n(Anthropic API)"]
-        CL["Tool Use:\n• run_pipeline\n• run_step\n• get_status\n• run_sharing"]
+        CL["Tool Use (7 tools):\n• run_pipeline\n• run_step\n• run_sharing\n• get_status\n• get_runtime / set_runtime\n• clear_data\n• run_ci"]
     end
 
     subgraph PIPELINE["Utilitics Pipeline Scripts"]
@@ -524,6 +532,59 @@ flowchart LR
 </div>
 
 <!-- ─────────────────────────────────────────────
+     CI / CD / NIGHTLY BUILD
+     ───────────────────────────────────────────── -->
+<div class="section-title">
+  CI / CD / Nightly Build
+  <span class="badge badge-done">DONE</span>
+</div>
+
+<div class="diagram-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph DEV["Developer (Local)"]
+        D1["git commit\n(pre-commit hook fires)"]
+        D2["ci/check_syntax.py\nSyntax + secrets scan\n25 files · 0 failures"]
+        D1-->D2
+    end
+
+    subgraph GH["GitHub Actions (Cloud)"]
+        direction TB
+        CI["CI Workflow\n.github/workflows/ci.yml\nTrigger: every push to main\ncheck_syntax.py"]
+        CD["CD Workflow\n.github/workflows/cd.yml\nTrigger: CI passes\nupload_notebooks.py"]
+        CI-->|"PASS"| CD
+    end
+
+    subgraph DEPLOY["Databricks Workspace"]
+        NB["/POC/ notebooks\nAuto-updated on\nevery push"]
+    end
+
+    subgraph NIGHTLY["Nightly Build — 2 AM daily"]
+        direction TB
+        N1["Windows Task Scheduler\nci/setup_nightly.bat"]
+        N2["ci/nightly_build.py\n1. CI check\n2. Full pipeline run\n3. WhatsApp notification"]
+        N3["📱 WhatsApp Result\nPASS/FAIL · Duration · Summary"]
+        N1-->N2-->N3
+    end
+
+    subgraph WA["WhatsApp Command"]
+        W1["'run tests'\n→ run_ci tool\n→ CI check on demand"]
+    end
+
+    D2 -->|"PASS → push"| GH
+    CD --> DEPLOY
+    NIGHTLY -.->|"2 AM"| N2
+    WA --> N2
+
+    style DEV     fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style GH      fill:#0d1f0d,stroke:#238636,color:#3fb950
+    style DEPLOY  fill:#1a1000,stroke:#d29922,color:#e3b341
+    style NIGHTLY fill:#0d1929,stroke:#1f6feb,color:#58a6ff
+    style WA      fill:#111,stroke:#555,color:#ccc
+</div>
+</div>
+
+<!-- ─────────────────────────────────────────────
      FUTURE — AZURE MIGRATION
      ───────────────────────────────────────────── -->
 <div class="section-title">
@@ -542,6 +603,7 @@ flowchart TD
         I5["✅ Cluster\npoc-single-node\nE2s_v3 · 10min auto-terminate"]
         I6["✅ Unity Catalog\ndata_sharing_poc catalog\nbronze/silver/gold schemas"]
         I7["✅ Notebooks Deployed\n9 notebooks in /POC/\nabfss:// paths · no mounts"]
+        I8["✅ CI/CD Implemented\nGitHub Actions CI (syntax+secrets)\nCD (auto-deploy notebooks)\nNightly Build + WhatsApp alerts"]
     end
 
     subgraph NEXT["⏳ NEXT STEPS"]
@@ -600,6 +662,16 @@ flowchart TD
 
 <div class="progress-section">
   <div class="progress-label"><span>Part 2 — Azure Infrastructure &amp; Unity Catalog</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — CI/CD (GitHub Actions + Nightly Build + pre-commit)</span><span class="green">100%</span></div>
+  <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
+</div>
+
+<div class="progress-section">
+  <div class="progress-label"><span>Part 1 — Multi-format Data Sources (CSV · SQLite · Parquet)</span><span class="green">100%</span></div>
   <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:100%"></div></div>
 </div>
 
@@ -663,19 +735,28 @@ flowchart TD
         D6["delta-sharing-server.jar (download needed)"]
     end
 
-    subgraph LK["lake/  (data store)"]
-        L1["raw/timeseries + files"]
-        L2["sources/assets.db (SQLite) ✅"]
-        L3["bronze/ silver/ gold/  (Delta)"]
+    subgraph LK["data/lake/  (data store)"]
+        L1["sources/timeseries_csv/  (CSV drops)"]
+        L2["sources/assets.db  (SQLite) ✅"]
+        L3["sources/files_parquet/  (Parquet)"]
+        L4["bronze/ silver/ gold/  (Delta Lake)"]
     end
 
     subgraph AUTO["automation/  ✅"]
         A1["webhook_server.py ✅\nFastAPI + Twilio webhook\nngrok expose"]
-        A2["claude_tools.py ✅\nClaude tool schemas\nTool dispatcher"]
-        A3["pipeline_runner.py ✅\nSubprocess wrapper\nState persistence"]
+        A2["claude_tools.py ✅\n7 Claude tool schemas\nTool dispatcher"]
+        A3["pipeline_runner.py ✅\nSubprocess wrapper\nCI check + state"]
     end
 
-    ROOT --> RUN & CFG & NB & DS & LK & AUTO
+    subgraph CI["ci/  ✅  +  .github/workflows/"]
+        CI1["check_syntax.py ✅\nSyntax + secrets scan\n25 files · 0 failures"]
+        CI2["nightly_build.py ✅\n2AM pipeline + WhatsApp\nWindows Task Scheduler"]
+        CI3["setup_nightly.bat ✅\nTask Scheduler registration"]
+        CI4[".github/workflows/ci.yml ✅\nGitHub Actions on push"]
+        CI5[".github/workflows/cd.yml ✅\nAuto-deploy notebooks"]
+    end
+
+    ROOT --> RUN & CFG & NB & DS & LK & AUTO & CI
 
     style CFG  fill:#0d1929,stroke:#1f6feb,color:#58a6ff
     style NB   fill:#0d1f0d,stroke:#238636,color:#3fb950
@@ -683,6 +764,7 @@ flowchart TD
     style DS   fill:#1a0d2e,stroke:#6e40c9,color:#bc8cff
     style LK   fill:#1a1000,stroke:#d29922,color:#e3b341
     style AUTO fill:#111,stroke:#444,color:#888
+    style CI   fill:#0d1f0d,stroke:#238636,color:#3fb950
     style RUN  fill:#0d1929,stroke:#1f6feb,color:#58a6ff
 </div>
 </div>

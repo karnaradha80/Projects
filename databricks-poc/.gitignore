@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Secrets — NEVER commit these
+automation/.env
+.env
+
+# Pipeline data (can be regenerated)
+lake/raw/
+lake/bronze/
+lake/silver/
+lake/gold/
+lake/sources/
+lake/spark-warehouse/
+
+# State files
+.last_pipeline_run.txt
+
+# Logs
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/

@@ -33,18 +33,20 @@ from config.pipeline_config import get_path, get_db_config, DATA_CONFIG
 def clear_directory_contents(path):
     """
     Delete all files and subdirectories INSIDE a directory without
-    deleting the directory itself. This avoids Windows ACL issues where
-    pre-created directories from 'mkdir' cannot be removed, but their
-    contents can be.
+    deleting the directory itself. Skips files that Windows won't release
+    (e.g. Parquet CRC files still held by a prior JVM process).
     """
     if not os.path.exists(path):
         return
     for item in os.listdir(path):
         item_path = os.path.join(path, item)
-        if os.path.isfile(item_path):
-            os.remove(item_path)
-        elif os.path.isdir(item_path):
-            shutil.rmtree(item_path)
+        try:
+            if os.path.isfile(item_path):
+                os.remove(item_path)
+            elif os.path.isdir(item_path):
+                shutil.rmtree(item_path, ignore_errors=True)
+        except PermissionError:
+            pass   # file still held by previous JVM — safe to ignore, CSV overwrites anyway
 
 from pyspark.sql.types import *
 
@@ -133,10 +135,26 @@ for meter_idx in range(num_meters):
             ))
 
 ts_df = spark.createDataFrame(ts_rows, schema_ts)
-clear_directory_contents(get_path("raw_timeseries"))
-ts_df.write.mode("append").parquet(get_path("raw_timeseries"))
 ts_count = ts_df.count()
-print(f"      Generated: {ts_count:,} records")
+
+# Write as CSV — simulates smart meter readings arriving as daily CSV file drops
+# (common in real utility operations from SCADA / AMI head-end systems)
+# Write to a temp file first, then move — avoids Spark holding a path lock on raw_timeseries/
+import tempfile
+raw_ts_dir = os.path.normpath(get_path("raw_timeseries"))
+os.makedirs(raw_ts_dir, exist_ok=True)
+csv_path = os.path.join(raw_ts_dir, "meter_readings.csv")
+ts_pandas = ts_df.toPandas()
+with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as tmp:
+    tmp_path = tmp.name
+    ts_pandas.to_csv(tmp, index=False)
+if os.path.exists(csv_path):
+    try:
+        os.remove(csv_path)
+    except PermissionError:
+        pass
+shutil.move(tmp_path, csv_path)
+print(f"      Generated: {ts_count:,} records  →  CSV: {csv_path}")
 
 # ============================================================
 # 2. SNAPSHOT DATA
@@ -291,9 +309,9 @@ for fc_idx in range(num_forecasts):
         ))
 
 file_df = spark.createDataFrame(file_rows, schema_file)
-clear_directory_contents(get_path("raw_files"))
-file_df.write.mode("append").parquet(get_path("raw_files"))
 file_count = file_df.count()
+# Write as Parquet — columnar format simulating ERM/spreadsheet data exports
+file_df.write.mode("overwrite").parquet(get_path("raw_files"))
 print(f"      Generated: {file_count:,} records")
 
 # ============================================================
@@ -311,8 +329,9 @@ print(f"  File Data:      {file_count:>10,} records")
 print(f"  {'─' * 35}")
 print(f"  Total:          {total_records:>10,} records")
 print(f"  Elapsed time:   {elapsed} seconds")
-print(f"  Raw location:   {os.path.dirname(get_path('raw_timeseries'))}")
-print(f"  SQLite DB:      {get_db_config()['sqlite_path']}")
+print(f"  Time Series CSV: {os.path.join(get_path('raw_timeseries'), 'meter_readings.csv')}")
+print(f"  Snapshot SQLite: {get_db_config()['sqlite_path']}")
+print(f"  File Data Parquet: {get_path('raw_files')}")
 print("=" * 60)
 
 spark.stop()

@@ -230,6 +230,24 @@ def clear_data(include_vendor=False):
     }
 
 
+def run_ci_check():
+    """Run ci/check_syntax.py and return structured result."""
+    script = os.path.join(PROJECT_ROOT, "ci", "check_syntax.py")
+    returncode, output, elapsed = _run([PYTHON, script], timeout=120)
+    success = returncode == 0
+    summary = _extract_summary(output)
+    if not summary:
+        # Fall back to last 10 lines of output
+        lines = [l.strip() for l in output.splitlines() if l.strip()]
+        summary = "\n".join(lines[-10:])
+    return {
+        "action":  "run_ci",
+        "success": success,
+        "elapsed": elapsed,
+        "summary": summary,
+    }
+
+
 def set_runtime(runtime):
     """Toggle RUNTIME flag in pipeline_config.py between local and databricks."""
     runtime = runtime.lower().strip()

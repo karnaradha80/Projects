@@ -49,7 +49,7 @@ DATABRICKS_CONFIG = {
 # ============================================================
 # Base paths
 # ============================================================
-LOCAL_BASE = "C:/Projects/databricks-poc/lake"
+LOCAL_BASE = "C:/Projects/databricks-poc/data/lake"
 AZURE_BASE_RAW = "/mnt/raw-data"
 AZURE_BASE_PROCESSED = "/mnt/processed-data"
 
@@ -58,9 +58,9 @@ AZURE_BASE_PROCESSED = "/mnt/processed-data"
 # ============================================================
 PATHS = {
     "local": {
-        # Raw data (source) — snapshot is in SQLite, not here
-        "raw_timeseries": f"{LOCAL_BASE}/raw/timeseries",
-        "raw_files": f"{LOCAL_BASE}/raw/files",
+        # Raw data (source) — three different source formats under sources/ (writable)
+        "raw_timeseries": f"{LOCAL_BASE}/sources/timeseries_csv",   # CSV file drop
+        "raw_files": f"{LOCAL_BASE}/sources/files_parquet",         # Parquet forecast files
 
         # Bronze layer
         "bronze_timeseries": f"{LOCAL_BASE}/bronze/timeseries",

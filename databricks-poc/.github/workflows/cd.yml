@@ -1,0 +1,49 @@
+name: CD — Deploy Notebooks to Databricks
+
+# Only runs AFTER ci.yml passes on main branch
+on:
+  workflow_run:
+    workflows: ["CI — Syntax & Secrets Check"]
+    branches: [ main ]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    name: Upload Notebooks to Databricks
+    runs-on: ubuntu-latest
+    # Only deploy if CI actually passed
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests
+
+      - name: Deploy notebooks to Databricks workspace
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: python upload_notebooks.py
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "================================================"
+          echo "CD COMPLETE — Notebooks deployed to Databricks"
+          echo "Workspace: $DATABRICKS_HOST/POC/"
+          echo "================================================"
+
+      - name: Deployment failed
+        if: failure()
+        run: |
+          echo "CD FAILED — Notebook upload did not complete."
+          echo "Check DATABRICKS_HOST and DATABRICKS_TOKEN secrets in GitHub."

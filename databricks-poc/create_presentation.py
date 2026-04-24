@@ -2,21 +2,21 @@
 create_presentation.py
 Creates a professional PowerPoint presentation for the Utilitics Azure Databricks
 Data Sharing Platform project — suitable for mixed audience (executives + technical team).
+9-slide concise version.
 """
 
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Inches, Pt
 import datetime
 
 # ─── Colour Palette ───────────────────────────────────────────────────────────
-NAVY        = RGBColor(0x0D, 0x1B, 0x2A)   # dark navy — backgrounds
-BLUE        = RGBColor(0x1B, 0x4F, 0x72)   # mid blue — headers
-ACCENT      = RGBColor(0x00, 0xAE, 0xEF)   # bright cyan — highlights
-GREEN       = RGBColor(0x1A, 0xBC, 0x9C)   # green — done/success
-ORANGE      = RGBColor(0xE6, 0x7E, 0x22)   # orange — in progress
+NAVY        = RGBColor(0x0D, 0x1B, 0x2A)
+BLUE        = RGBColor(0x1B, 0x4F, 0x72)
+ACCENT      = RGBColor(0x00, 0xAE, 0xEF)
+GREEN       = RGBColor(0x1A, 0xBC, 0x9C)
+ORANGE      = RGBColor(0xE6, 0x7E, 0x22)
 WHITE       = RGBColor(0xFF, 0xFF, 0xFF)
 LIGHT_GRAY  = RGBColor(0xF4, 0xF6, 0xF7)
 DARK_GRAY   = RGBColor(0x2C, 0x3E, 0x50)
@@ -24,6 +24,7 @@ MID_GRAY    = RGBColor(0x7F, 0x8C, 0x8D)
 
 SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
+TOTAL   = 9
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ def new_prs():
 
 
 def blank_slide(prs):
-    layout = prs.slide_layouts[6]   # completely blank
+    layout = prs.slide_layouts[6]
     return prs.slides.add_slide(layout)
 
 
@@ -66,20 +67,16 @@ def txt(slide, text, left, top, width, height,
     p.alignment = align
     run = p.add_run()
     run.text = text
-    run.font.size  = Pt(font_size)
-    run.font.bold  = bold
+    run.font.size   = Pt(font_size)
+    run.font.bold   = bold
     run.font.color.rgb = color
     run.font.italic = italic
-    run.font.name  = "Calibri"
+    run.font.name   = "Calibri"
     return txb
 
 
 def txt_box(slide, lines, left, top, width, height,
-            font_size=16, color=DARK_GRAY, line_spacing=1.2):
-    """Multi-line text box — lines is list of (text, bold, color_override)."""
-    from pptx.util import Pt
-    from pptx.oxml.ns import qn
-    from lxml import etree
+            font_size=16, color=DARK_GRAY):
     txb = slide.shapes.add_textbox(left, top, width, height)
     txb.word_wrap = True
     tf  = txb.text_frame
@@ -92,13 +89,8 @@ def txt_box(slide, lines, left, top, width, height,
             text = item[0]
             bold = item[1] if len(item) > 1 else False
             col  = item[2] if len(item) > 2 else color
-
-        if first:
-            p = tf.paragraphs[0]
-            first = False
-        else:
-            p = tf.add_paragraph()
-
+        p = tf.paragraphs[0] if first else tf.add_paragraph()
+        first = False
         p.alignment = PP_ALIGN.LEFT
         run = p.add_run()
         run.text = text
@@ -110,22 +102,21 @@ def txt_box(slide, lines, left, top, width, height,
 
 
 def header_bar(slide, title, subtitle=None):
-    """Dark navy top bar with title."""
     rect(slide, 0, 0, SLIDE_W, Inches(1.35), fill_color=NAVY)
     rect(slide, 0, Inches(1.35), SLIDE_W, Pt(4), fill_color=ACCENT)
     txt(slide, title, Inches(0.4), Inches(0.18), Inches(12), Inches(0.7),
         font_size=28, bold=True, color=WHITE)
     if subtitle:
         txt(slide, subtitle, Inches(0.4), Inches(0.82), Inches(10), Inches(0.45),
-            font_size=16, color=ACCENT, bold=False)
+            font_size=16, color=ACCENT)
 
 
-def footer(slide, slide_num, total=15):
+def footer(slide, slide_num):
     rect(slide, 0, Inches(7.1), SLIDE_W, Inches(0.4), fill_color=NAVY)
     txt(slide, "UTILITICS | Azure Databricks Data Sharing Platform | Confidential",
         Inches(0.3), Inches(7.12), Inches(10), Inches(0.3),
         font_size=9, color=MID_GRAY)
-    txt(slide, f"{slide_num} / {total}",
+    txt(slide, f"{slide_num} / {TOTAL}",
         Inches(12.5), Inches(7.12), Inches(0.7), Inches(0.3),
         font_size=9, color=MID_GRAY, align=PP_ALIGN.RIGHT)
 
@@ -139,57 +130,46 @@ def stat_box(slide, left, top, width, height, number, label, color=ACCENT):
         font_size=11, color=WHITE, align=PP_ALIGN.CENTER)
 
 
-def status_pill(slide, left, top, label, done=True):
-    color = GREEN if done else ORANGE
-    status = "DONE" if done else "IN PROGRESS"
-    rect(slide, left, top, Inches(1.1), Inches(0.32), fill_color=color)
-    txt(slide, status, left, top, Inches(1.1), Inches(0.32),
-        font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+def _check(s, x, y, label, done=True, detail=""):
+    color  = GREEN if done else ORANGE
+    symbol = "+" if done else "o"
+    rect(s, x, y, Inches(0.28), Inches(0.26), fill_color=color)
+    txt(s, symbol, x, y, Inches(0.28), Inches(0.26),
+        font_size=10, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    txt(s, label, x + Inches(0.33), y, Inches(2.7), Inches(0.26),
+        font_size=11, bold=done, color=DARK_GRAY if done else ORANGE)
+    if detail:
+        txt(s, detail, x + Inches(3.1), y, Inches(2.8), Inches(0.26),
+            font_size=9, color=MID_GRAY)
 
 
-# ─── Slide Builders ──────────────────────────────────────────────────────────
+# ─── Slide 1: Title ───────────────────────────────────────────────────────────
 
 def slide_01_title(prs):
     s = blank_slide(prs)
-
-    # Full background
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
-
-    # Left accent strip
     rect(s, 0, 0, Inches(0.18), SLIDE_H, fill_color=ACCENT)
-
-    # Bottom accent line
     rect(s, 0, Inches(6.8), SLIDE_W, Pt(4), fill_color=ACCENT)
 
-    # Company tag
     txt(s, "UTILITICS", Inches(0.4), Inches(0.4), Inches(5), Inches(0.5),
         font_size=13, bold=True, color=ACCENT)
-
-    # Main title
     txt(s, "Azure Databricks\nData Sharing Platform",
         Inches(0.4), Inches(1.2), Inches(9), Inches(2.2),
         font_size=44, bold=True, color=WHITE)
-
-    # Subtitle
     txt(s, "Proof of Concept — Progress & Roadmap Presentation",
         Inches(0.4), Inches(3.3), Inches(9), Inches(0.6),
         font_size=20, color=ACCENT, italic=True)
-
-    # Divider
     rect(s, Inches(0.4), Inches(4.0), Inches(4), Pt(2), fill_color=ACCENT)
-
-    # Meta info
-    txt(s, f"Presented by:  Radhakrishnan Karnakumar",
+    txt(s, "Presented by:  Radhakrishnan Karnakumar",
         Inches(0.4), Inches(4.2), Inches(8), Inches(0.4),
         font_size=14, color=WHITE)
-    txt(s, f"Date:  April 2026",
+    txt(s, "Date:  April 2026",
         Inches(0.4), Inches(4.65), Inches(8), Inches(0.4),
         font_size=14, color=MID_GRAY)
     txt(s, "Audience:  Executive Leadership + Technical Team",
         Inches(0.4), Inches(5.1), Inches(8), Inches(0.4),
         font_size=14, color=MID_GRAY)
 
-    # Right side graphic element
     rect(s, Inches(10.5), Inches(1.5), Inches(2.5), Inches(4.5), fill_color=BLUE)
     txt(s, "POC\nSTATUS", Inches(10.5), Inches(2.2), Inches(2.5), Inches(1.2),
         font_size=22, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
@@ -200,715 +180,576 @@ def slide_01_title(prs):
         font_size=14, color=ORANGE, bold=True, align=PP_ALIGN.CENTER)
 
 
-def slide_02_agenda(prs):
+# ─── Slide 2: Business Requirement & Approach ─────────────────────────────────
+
+def slide_02_requirement_approach(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Agenda", "What we will cover today")
+    header_bar(s, "Business Requirement & Approach",
+               "What was asked — and how we tackled it")
     footer(s, 2)
 
-    items = [
-        ("01", "Business Requirement",        "What was asked of us"),
-        ("02", "Our Approach",                "Why local first, then Azure"),
-        ("03", "What is Databricks?",         "Origin, platform overview, simple explanation"),
-        ("04", "Databricks Key Features",     "Delta Lake, Unity Catalog, Medallion, Sharing"),
-        ("05", "Why Azure Databricks?",       "Azure integration, cost, vs alternatives"),
-        ("06", "Solution Architecture",       "End-to-end platform design"),
-        ("07", "Technology Stack",            "Tools used and why"),
-        ("08", "Part 1 — Local POC",          "What we built, fully working"),
-        ("09", "Part 2 — Azure Migration",    "Current progress on cloud"),
-        ("10", "Key Achievements",            "Highlights and live features"),
-        ("11", "What's Next",                 "Remaining phases and plan"),
-        ("12", "Business Value",              "What this delivers when complete"),
-        ("13", "Q&A",                         "Open discussion"),
+    # LEFT panel
+    rect(s, Inches(0.3), Inches(1.5), Inches(6.0), Inches(5.65), fill_color=WHITE)
+    rect(s, Inches(0.3), Inches(1.5), Inches(6.0), Pt(4), fill_color=BLUE)
+    txt(s, "What Was Asked", Inches(0.5), Inches(1.58),
+        Inches(5.6), Inches(0.38), font_size=14, bold=True, color=BLUE)
+
+    asks = [
+        ("Build a Data Sharing Platform on Azure Databricks",       True),
+        ("Handle 3 types of real energy data from Utilitics:",      True),
+        ("  Time Series  — 168K meter readings  (CSV file drops)",  False),
+        ("  Snapshot     — 14K network assets   (SQLite database)", False),
+        ("  File Data    — 84K demand forecasts (Parquet files)",   False),
+        ("Medallion architecture: Bronze -> Silver -> Gold",        True),
+        ("Secure Delta Sharing with external vendors (read-only)",  True),
+        ("Pipeline automation & monitoring (ChatOps via WhatsApp)", True),
+        ("Budget: under $25 / month on Azure",                      True),
     ]
+    ty = Inches(2.05)
+    for text, bold in asks:
+        txt(s, text, Inches(0.5), ty, Inches(5.6), Inches(0.32),
+            font_size=11, bold=bold, color=DARK_GRAY if bold else BLUE)
+        ty += Inches(0.33)
 
-    col1_x = Inches(0.4)
-    col2_x = Inches(7.0)
-    top    = Inches(1.6)
-    gap    = Inches(0.52)
+    rect(s, Inches(0.3), Inches(5.25), Inches(6.0), Pt(2), fill_color=BLUE)
+    txt(s, "Success Criteria", Inches(0.5), Inches(5.3),
+        Inches(5.5), Inches(0.3), font_size=12, bold=True, color=BLUE)
+    criteria = [
+        ("Full pipeline end-to-end",           True),
+        ("19/19 quality checks pass",          True),
+        ("Delta Sharing: Utilitics -> Vendor", True),
+        ("Pipeline via WhatsApp (live tested)", True),
+        ("Azure cloud run",                    False),
+        ("Workflows scheduling",               False),
+    ]
+    cx, cy = Inches(0.5), Inches(5.68)
+    for i, (label, done) in enumerate(criteria):
+        col = GREEN if done else ORANGE
+        sym = "+" if done else "o"
+        x = cx + (i % 2) * Inches(3.0)
+        y = cy + (i // 2) * Inches(0.3)
+        txt(s, f"{sym} {label}", x, y, Inches(2.8), Inches(0.28),
+            font_size=10, color=col, bold=done)
 
-    for i, (num, title, desc) in enumerate(items):
-        col = col1_x if i < 5 else col2_x
-        row = (i % 5) * gap + top
+    # RIGHT panel
+    rect(s, Inches(6.6), Inches(1.5), Inches(6.4), Inches(5.65), fill_color=NAVY)
+    rect(s, Inches(6.6), Inches(1.5), Inches(6.4), Pt(4), fill_color=ACCENT)
+    txt(s, "Our Approach  —  Local First, Then Azure",
+        Inches(6.8), Inches(1.58), Inches(6.0), Inches(0.38),
+        font_size=14, bold=True, color=ACCENT)
 
-        rect(s, col, row, Inches(0.42), Inches(0.38), fill_color=ACCENT)
-        txt(s, num, col, row, Inches(0.42), Inches(0.38),
-            font_size=12, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
-        txt(s, title, col + Inches(0.5), row, Inches(2.8), Inches(0.38),
-            font_size=14, bold=True, color=DARK_GRAY)
-        txt(s, desc,  col + Inches(0.5), row + Inches(0.22), Inches(2.8), Inches(0.28),
-            font_size=10, color=MID_GRAY)
+    rect(s, Inches(6.8), Inches(2.05), Inches(5.9), Inches(1.55), fill_color=DARK_GRAY)
+    rect(s, Inches(6.8), Inches(2.05), Inches(5.9), Pt(3), fill_color=GREEN)
+    txt(s, "PHASE 1 - Local Development  [DONE]  ($0 cost)",
+        Inches(6.95), Inches(2.08), Inches(5.6), Inches(0.3),
+        font_size=11, bold=True, color=GREEN)
+    for i, pt in enumerate([
+        "  Full pipeline on Windows 11 laptop - PySpark + Delta Lake",
+        "  Same code as cloud - validated before any Azure spend",
+        "  ChatOps live: WhatsApp -> Claude AI -> pipeline control",
+        "  CI/CD: GitHub Actions + nightly build + WhatsApp alerts",
+    ]):
+        txt(s, pt, Inches(6.95), Inches(2.43) + i * Inches(0.27),
+            Inches(5.6), Inches(0.26), font_size=10, color=LIGHT_GRAY)
+
+    txt(s, "   Same code - only 3 config path changes",
+        Inches(6.8), Inches(3.68), Inches(5.9), Inches(0.32),
+        font_size=11, color=ACCENT, bold=True, align=PP_ALIGN.CENTER)
+
+    rect(s, Inches(6.8), Inches(4.05), Inches(5.9), Inches(2.85), fill_color=DARK_GRAY)
+    rect(s, Inches(6.8), Inches(4.05), Inches(5.9), Pt(3), fill_color=ORANGE)
+    txt(s, "PHASE 2 - Azure Migration  [IN PROGRESS]  (~$5-8/month)",
+        Inches(6.95), Inches(4.08), Inches(5.6), Inches(0.3),
+        font_size=11, bold=True, color=ORANGE)
+    phase2 = [
+        ("+ Resource group, ADLS Gen2, Databricks Premium", True),
+        ("+ Unity Catalog, secret scope, cluster running",  True),
+        ("+ 9 notebooks deployed (abfss:// paths)",         True),
+        ("+ CI/CD auto-deploys on every push",              True),
+        ("o Run Azure pipeline (01-05) - NEXT STEP",        False),
+        ("o Real Delta Sharing via Unity Catalog (Phase 8)",False),
+        ("o Databricks Workflows scheduling (Phase 9)",     False),
+        ("o Azure Functions ChatOps (Phase 10)",            False),
+    ]
+    for i, (pt, done) in enumerate(phase2):
+        col = GREEN if done else ORANGE
+        txt(s, pt, Inches(6.95), Inches(4.45) + i * Inches(0.29),
+            Inches(5.6), Inches(0.28), font_size=10, color=col)
 
 
-def slide_03_requirement(prs):
+# ─── Slide 3: What is Azure Databricks? ──────────────────────────────────────
+
+def slide_03_databricks_overview(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Business Requirement", "What was asked — Statement of Work")
+    header_bar(s, "What is Azure Databricks?",
+               "Unified analytics platform — built for big data at cloud scale")
     footer(s, 3)
 
-    # Left box
-    rect(s, Inches(0.3), Inches(1.6), Inches(5.9), Inches(5.1), fill_color=WHITE)
-    rect(s, Inches(0.3), Inches(1.6), Inches(5.9), Pt(4), fill_color=BLUE)
-    txt(s, "The Brief", Inches(0.5), Inches(1.7), Inches(5), Inches(0.45),
-        font_size=16, bold=True, color=BLUE)
-
-    reqs = [
-        "Build a modern Data Sharing Platform on Azure Databricks",
-        "Handle 3 types of energy data from Utilitics:",
-        "    Time Series — 168,000 smart meter readings",
-        "    Snapshot   — 14,000 network asset records (SQL)",
-        "    File Data  — 84,000 demand forecast records",
-        "Implement Medallion architecture (Bronze → Silver → Gold)",
-        "Enable secure Delta Sharing with external vendors",
-        "Automate pipeline execution and monitoring",
-        "Keep costs under $25/month",
+    # Three concept cards
+    cards = [
+        (ACCENT,  "Unified Analytics",
+         "One platform for data engineering, ML, and BI analytics.",
+         ["Apache Spark compute engine", "Delta Lake storage layer",
+          "SQL, Python, Scala, R support", "Notebooks + Jobs + Dashboards"]),
+        (GREEN,   "Cloud-Native on Azure",
+         "Deep Azure integration — secure, scalable, pay-per-use.",
+         ["ADLS Gen2 (abfss://) storage", "Azure AD + Unity Catalog security",
+          "Auto-scaling clusters", "DevOps & GitHub integration"]),
+        (ORANGE,  "Why We Chose It",
+         "Best fit for energy data: volume, variety, and sharing.",
+         ["Handles TB-scale time-series data", "Delta Sharing: vendor read access",
+          "Medallion (Bronze/Silver/Gold)", "Same code local + cloud"]),
     ]
-    txt_box(s, [(r, "Utilitics" in r or "3 types" in r or "Medallion" in r
-                    or "Delta Sharing" in r, DARK_GRAY) for r in reqs],
-            Inches(0.5), Inches(2.25), Inches(5.5), Inches(4.0),
-            font_size=13, color=DARK_GRAY)
+    for i, (color, title, subtitle, bullets) in enumerate(cards):
+        x = Inches(0.3) + i * Inches(4.35)
+        w = Inches(4.1)
+        rect(s, x, Inches(1.55), w, Inches(5.15), fill_color=WHITE)
+        rect(s, x, Inches(1.55), w, Pt(5), fill_color=color)
+        txt(s, title, x + Inches(0.15), Inches(1.65),
+            w - Inches(0.3), Inches(0.4),
+            font_size=16, bold=True, color=color)
+        txt(s, subtitle, x + Inches(0.15), Inches(2.1),
+            w - Inches(0.3), Inches(0.5),
+            font_size=11, color=MID_GRAY, italic=True)
+        rect(s, x + Inches(0.15), Inches(2.6), w - Inches(0.3), Pt(1),
+             fill_color=RGBColor(0xDD, 0xDD, 0xDD))
+        for j, bullet in enumerate(bullets):
+            txt(s, f"  {bullet}",
+                x + Inches(0.15), Inches(2.72) + j * Inches(0.42),
+                w - Inches(0.3), Inches(0.38),
+                font_size=12, color=DARK_GRAY)
 
-    # Right box
-    rect(s, Inches(6.5), Inches(1.6), Inches(6.5), Inches(5.1), fill_color=NAVY)
-    rect(s, Inches(6.5), Inches(1.6), Inches(6.5), Pt(4), fill_color=ACCENT)
-    txt(s, "Success Criteria", Inches(6.7), Inches(1.7), Inches(6), Inches(0.45),
-        font_size=16, bold=True, color=ACCENT)
-
-    criteria = [
-        ("Full pipeline runs end-to-end", True),
-        ("19/19 data quality checks pass", True),
-        ("Data shared with vendor (Utilitics→Vendor, read-only)", True),
-        ("Pipeline controllable via WhatsApp", True),
-        ("Gold data visible in Power BI", True),
-        ("Runs on Azure cloud (not just local)", False),
-        ("Scheduled automation (Workflows)", False),
+    # Bottom bar: key numbers
+    rect(s, 0, Inches(6.8), SLIDE_W, Inches(0.3), fill_color=NAVY)
+    facts = [
+        ("10,000+", "customers worldwide"),
+        ("$43B",    "Databricks valuation"),
+        ("Apache Spark", "open-source engine"),
+        ("Delta Lake", "ACID transactions on data lake"),
+        ("Unity Catalog", "single governance layer"),
     ]
-    top_c = Inches(2.25)
-    for label, done in criteria:
-        color  = GREEN if done else ORANGE
-        symbol = "✔" if done else "◉"
-        txt(s, symbol, Inches(6.7), top_c, Inches(0.4), Inches(0.38),
-            font_size=14, bold=True, color=color)
-        txt(s, label, Inches(7.2), top_c, Inches(5.5), Inches(0.38),
-            font_size=13, color=WHITE)
-        top_c += Inches(0.45)
+    for i, (num, label) in enumerate(facts):
+        x = Inches(0.3) + i * Inches(2.6)
+        txt(s, num, x, Inches(6.82), Inches(2.4), Inches(0.25),
+            font_size=9, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
+        txt(s, label, x, Inches(7.07), Inches(2.4), Inches(0.25),
+            font_size=8, color=MID_GRAY, align=PP_ALIGN.CENTER)
 
 
-def slide_04_approach(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Our Approach", "Local first — then Azure. Zero risk, zero wasted spend.")
-    footer(s, 4)
+# ─── Slide 4: Solution Architecture ──────────────────────────────────────────
 
-    # Two phase boxes
-    for i, (phase, color, title, points) in enumerate([
-        ("PHASE 1", GREEN, "Local Development (Zero Cost)",
-         ["Build entire platform on Windows 11 laptop",
-          "PySpark + Delta Lake — same code as cloud",
-          "Validate all logic before spending on cloud",
-          "Fast iteration — no cluster startup wait",
-          "Cost: $0   Duration: 2 weeks"]),
-        ("PHASE 2", ACCENT, "Azure Cloud Migration (~$5-8/month)",
-         ["Lift-and-shift: 3 path changes, code unchanged",
-          "ADLS Gen2 storage + Databricks Premium workspace",
-          "Unity Catalog for governance & Delta Sharing",
-          "Databricks Workflows for scheduling",
-          "Azure Functions for permanent ChatOps webhook"]),
-    ]):
-        x = Inches(0.3 + i * 6.5)
-        rect(s, x, Inches(1.6), Inches(6.1), Inches(5.1), fill_color=NAVY)
-        rect(s, x, Inches(1.6), Inches(6.1), Pt(5), fill_color=color)
-        rect(s, x, Inches(1.6), Inches(1.2), Inches(0.55), fill_color=color)
-        txt(s, phase, x, Inches(1.6), Inches(1.2), Inches(0.55),
-            font_size=11, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
-        txt(s, title, x + Inches(0.2), Inches(2.25), Inches(5.7), Inches(0.5),
-            font_size=16, bold=True, color=WHITE)
-        top_p = Inches(2.85)
-        for pt in points:
-            txt(s, f"  {pt}", x + Inches(0.1), top_p, Inches(5.8), Inches(0.42),
-                font_size=13, color=LIGHT_GRAY)
-            top_p += Inches(0.43)
-
-    # Arrow between boxes
-    txt(s, "→", Inches(6.25), Inches(3.8), Inches(0.5), Inches(0.6),
-        font_size=36, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
-
-    # Key benefit bar
-    rect(s, Inches(0.3), Inches(6.85), Inches(12.7), Inches(0.4), fill_color=BLUE)
-    txt(s, "Key Insight:  Same Python code runs locally and on Azure — only file paths change. No rewrite needed.",
-        Inches(0.5), Inches(6.87), Inches(12.3), Inches(0.35),
-        font_size=12, color=WHITE, bold=True)
-
-
-def slide_08_architecture(prs):
+def slide_04_architecture(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
-    header_bar(s, "Solution Architecture", "End-to-end data platform — Medallion + Delta Sharing + ChatOps")
-    footer(s, 8)
+    header_bar(s, "Solution Architecture",
+               "End-to-end data flow: Sources -> Bronze -> Silver -> Gold -> Sharing")
+    footer(s, 4)
 
+    # Layer boxes
     layers = [
-        (ACCENT,  "DATA SOURCES",   ["Smart Meters\n(Parquet)", "Network Assets\n(SQL/SQLite)", "Demand Forecasts\n(Parquet)"]),
-        (BLUE,    "BRONZE LAYER",   ["Raw ingestion", "Delta Lake tables", "Lineage metadata"]),
-        (RGBColor(0x15,0x6A,0x9A), "SILVER LAYER", ["Deduplication", "Validation", "Derived columns"]),
-        (RGBColor(0x1A,0x5C,0x4A), "GOLD LAYER",   ["daily_meter_summary", "regional_demand", "network_assets", "forecast_summary"]),
+        (DARK_GRAY, "DATA SOURCES",
+         ["CSV (meter readings)", "SQLite (network assets)", "Parquet (ERM forecasts)"]),
+        (RGBColor(0x6E, 0x28, 0x0A), "BRONZE LAYER",
+         ["Raw ingestion", "Metadata columns", "Partition by date", "Delta format"]),
+        (RGBColor(0x1A, 0x5C, 0x6E), "SILVER LAYER",
+         ["Quality checks", "Deduplication", "Type casting", "19 DQ rules"]),
+        (RGBColor(0x1A, 0x6E, 0x3C), "GOLD LAYER",
+         ["Business aggregates", "Daily meter summary", "Regional demand", "Forecast KPIs"]),
+        (BLUE,                        "DELTA SHARING",
+         ["Unity Catalog", "Read-only tokens", "Vendor access", "Audit logs"]),
     ]
+    for i, (color, title, items) in enumerate(layers):
+        x = Inches(0.25) + i * Inches(2.6)
+        w = Inches(2.45)
+        rect(s, x, Inches(1.55), w, Inches(4.8), fill_color=color)
+        rect(s, x, Inches(1.55), w, Pt(4), fill_color=ACCENT)
+        txt(s, title, x, Inches(1.6), w, Inches(0.35),
+            font_size=11, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
+        for j, item in enumerate(items):
+            txt(s, f"• {item}", x + Inches(0.1), Inches(2.05) + j * Inches(0.36),
+                w - Inches(0.2), Inches(0.32), font_size=10, color=WHITE)
+        if i < 4:
+            txt(s, "->", x + w, Inches(3.55), Inches(0.15), Inches(0.35),
+                font_size=14, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
 
-    box_w = Inches(2.6)
-    gap   = Inches(0.2)
-    top_l = Inches(1.6)
-    ht    = Inches(3.2)
+    # Automation bar
+    rect(s, Inches(0.25), Inches(6.5), Inches(12.8), Inches(0.6), fill_color=DARK_GRAY)
+    rect(s, Inches(0.25), Inches(6.5), Inches(12.8), Pt(3), fill_color=ACCENT)
+    txt(s, "AUTOMATION  |  ChatOps: WhatsApp -> Twilio -> Claude AI (7 tools) -> Pipeline   "
+        "|   CI/CD: GitHub Actions -> Databricks   |   Nightly Build: Task Scheduler 2AM",
+        Inches(0.45), Inches(6.52), Inches(12.4), Inches(0.5),
+        font_size=10, color=LIGHT_GRAY)
 
-    for i, (color, label, items) in enumerate(layers):
-        x = Inches(0.3) + i * (box_w + gap)
-        rect(s, x, top_l, box_w, ht, fill_color=color)
-        txt(s, label, x, top_l + Inches(0.08), box_w, Inches(0.4),
-            font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-        rect(s, x + Inches(0.1), top_l + Inches(0.45), box_w - Inches(0.2), Pt(1), fill_color=WHITE)
-        top_i = top_l + Inches(0.6)
-        for item in items:
-            txt(s, f"• {item}", x + Inches(0.15), top_i, box_w - Inches(0.2), Inches(0.6),
-                font_size=11, color=WHITE)
-            top_i += Inches(0.55)
-        if i < 3:
-            txt(s, "▶", x + box_w + Inches(0.02), top_l + Inches(1.3), Inches(0.22), Inches(0.5),
-                font_size=18, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
-
-    # Bottom row — outputs
-    outputs = [
-        (GREEN,  "DELTA SHARING",    "Provider → Vendor\n(read-only protocol)\nVendor write-back = separate share / API"),
-        (ACCENT, "CHATOPS",          "WhatsApp → Claude AI\n→ Pipeline control\n(Live & tested)"),
-        (ORANGE, "POWER BI",         "Gold tables →\nDashboards &\nvisualisation"),
-        (BLUE,   "WORKFLOWS",        "Scheduled pipeline\nAutomation\n(Azure — next)"),
-    ]
-    box_w2 = Inches(2.8)
-    top_o  = Inches(5.1)
-    ht2    = Inches(1.6)
-    for i, (color, label, desc) in enumerate(outputs):
-        x = Inches(0.3) + i * (box_w2 + Inches(0.35))
-        rect(s, x, top_o, box_w2, ht2, fill_color=DARK_GRAY)
-        rect(s, x, top_o, box_w2, Pt(4), fill_color=color)
-        txt(s, label, x, top_o + Inches(0.05), box_w2, Inches(0.35),
-            font_size=11, bold=True, color=color, align=PP_ALIGN.CENTER)
-        txt(s, desc, x, top_o + Inches(0.38), box_w2, Inches(1.1),
-            font_size=10, color=WHITE, align=PP_ALIGN.CENTER)
+    # Runtime flag note
+    txt(s, "MODE flag: local (Windows) -> azure (cloud) — same notebooks, 3 path changes",
+        Inches(0.25), Inches(7.1), Inches(12), Inches(0.3),
+        font_size=9, color=MID_GRAY, italic=True)
 
 
-def slide_09_techstack(prs):
+# ─── Slide 5: Data Sources & Medallion Layers ─────────────────────────────────
+
+def slide_05_data_sources(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Technology Stack", "Industry-standard tools — all production-grade")
-    footer(s, 9)
+    header_bar(s, "Data Sources & Medallion Layers",
+               "Three source formats ingested, quality-checked, and aggregated")
+    footer(s, 5)
 
-    categories = [
-        ("Data Processing", BLUE, [
-            ("Apache Spark / PySpark 3.5", "Distributed data processing engine"),
-            ("Delta Lake 3.1",             "ACID transactions, time travel, schema enforcement"),
-            ("Delta Sharing",              "Open protocol for secure cross-org data sharing"),
-        ]),
-        ("Azure Cloud", ACCENT, [
-            ("Azure Databricks Premium",   "Managed Spark + Unity Catalog + Delta Sharing"),
-            ("ADLS Gen2",                  "Enterprise data lake storage (hierarchical namespace)"),
-            ("Azure Key Vault / Secrets",  "Secure credential management"),
-        ]),
-        ("Automation & ChatOps", GREEN, [
-            ("Claude AI (Anthropic)",      "AI reasoning + tool use to control pipeline"),
-            ("Twilio WhatsApp API",        "WhatsApp channel for pipeline control messages"),
-            ("FastAPI + ngrok",            "Webhook server (local) → Azure Functions (cloud)"),
-        ]),
-        ("Local & Tooling", ORANGE, [
-            ("SQLite → Azure SQL",         "Snapshot data source — same JDBC pattern both envs"),
-            ("Power BI Desktop",           "Gold table visualisation, connects to Parquet/Delta"),
-            ("Python-pptx / python-docx",  "Auto-generated documentation and presentations"),
-        ]),
+    # Source cards (top row)
+    sources = [
+        (ACCENT, "Time Series",
+         "Smart meter half-hourly readings",
+         "Format: CSV file drops", "168,000 records", "500 meters x 7 days x 48 readings"),
+        (GREEN,  "Snapshot",
+         "Daily network asset status capture",
+         "Format: SQLite database",  "14,000 records", "2,000 assets x 7 daily snapshots"),
+        (ORANGE, "File / Forecast",
+         "ERM demand forecast with confidence bands",
+         "Format: Parquet columnar", "84,000 records", "500 forecasts x 168 horizon hours"),
     ]
+    for i, (color, title, desc, fmt, count, detail) in enumerate(sources):
+        x = Inches(0.3) + i * Inches(4.35)
+        w = Inches(4.1)
+        rect(s, x, Inches(1.5), w, Inches(2.1), fill_color=WHITE)
+        rect(s, x, Inches(1.5), w, Pt(5), fill_color=color)
+        txt(s, title, x + Inches(0.12), Inches(1.6), w - Inches(0.24), Inches(0.35),
+            font_size=14, bold=True, color=color)
+        txt(s, desc, x + Inches(0.12), Inches(1.97), w - Inches(0.24), Inches(0.3),
+            font_size=10, color=DARK_GRAY)
+        txt(s, fmt, x + Inches(0.12), Inches(2.3), w - Inches(0.24), Inches(0.26),
+            font_size=10, color=MID_GRAY, italic=True)
+        txt(s, count, x + Inches(0.12), Inches(2.6), w - Inches(0.24), Inches(0.3),
+            font_size=12, bold=True, color=color)
+        txt(s, detail, x + Inches(0.12), Inches(2.92), w - Inches(0.24), Inches(0.26),
+            font_size=9, color=MID_GRAY)
 
-    col_w = Inches(6.0)
-    row_h = Inches(2.4)
-    pad   = Inches(0.25)
+    # Medallion section
+    txt(s, "Medallion Architecture", Inches(0.3), Inches(3.8), Inches(12), Inches(0.35),
+        font_size=14, bold=True, color=DARK_GRAY)
+    rect(s, Inches(0.3), Inches(4.15), Inches(12.7), Pt(1),
+         fill_color=RGBColor(0xCC, 0xCC, 0xCC))
 
-    for i, (cat, color, items) in enumerate(categories):
-        col = i % 2
-        row = i // 2
-        x   = Inches(0.3) + col * (col_w + Inches(0.7))
-        y   = Inches(1.6) + row * (row_h + Inches(0.15))
-
-        rect(s, x, y, col_w, row_h, fill_color=WHITE)
-        rect(s, x, y, col_w, Pt(4), fill_color=color)
-        rect(s, x, y, Inches(0.08), row_h, fill_color=color)
-
-        txt(s, cat, x + Inches(0.18), y + Inches(0.08), col_w, Inches(0.35),
+    medals = [
+        (RGBColor(0xCD, 0x7F, 0x32), "BRONZE",
+         "Raw ingestion — no transforms",
+         ["Append-only Delta tables", "Metadata: source, date, file",
+          "Partition by ingestion date", "Preserves raw data forever"]),
+        (RGBColor(0xC0, 0xC0, 0xC0), "SILVER",
+         "Cleaned & validated",
+         ["19 data quality checks", "Dedup, null filter, range checks",
+          "Quality flags retained", "Rejects < 20% drop rate"]),
+        (RGBColor(0xFF, 0xD7, 0x00), "GOLD",
+         "Business-ready aggregates",
+         ["Daily meter summary", "Regional demand totals",
+          "Network asset health", "Forecast confidence KPIs"]),
+    ]
+    for i, (color, title, subtitle, items) in enumerate(medals):
+        x = Inches(0.3) + i * Inches(4.25)
+        w = Inches(4.0)
+        rect(s, x, Inches(4.3), w, Inches(2.35), fill_color=DARK_GRAY)
+        rect(s, x, Inches(4.3), w, Pt(5), fill_color=color)
+        txt(s, title, x + Inches(0.12), Inches(4.35), w - Inches(0.24), Inches(0.32),
             font_size=13, bold=True, color=color)
-
-        top_i = y + Inches(0.5)
-        for tech, desc in items:
-            txt(s, tech, x + Inches(0.18), top_i, col_w - Inches(0.3), Inches(0.3),
-                font_size=12, bold=True, color=DARK_GRAY)
-            txt(s, desc, x + Inches(0.18), top_i + Inches(0.27), col_w - Inches(0.3), Inches(0.28),
-                font_size=10, color=MID_GRAY)
-            top_i += Inches(0.62)
+        txt(s, subtitle, x + Inches(0.12), Inches(4.68), w - Inches(0.24), Inches(0.26),
+            font_size=10, color=MID_GRAY, italic=True)
+        for j, item in enumerate(items):
+            txt(s, f"  {item}", x + Inches(0.12), Inches(4.98) + j * Inches(0.35),
+                w - Inches(0.24), Inches(0.31), font_size=10, color=WHITE)
 
 
-def slide_10_part1(prs):
+# ─── Slide 6: POC Status & Achievements ──────────────────────────────────────
+
+def slide_06_poc_status(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Part 1 — Local POC", "Fully complete. All 15 sections done.")
-    footer(s, 10)
+    header_bar(s, "POC Status & Key Achievements",
+               "Part 1 complete — Part 2 Azure migration in progress")
+    footer(s, 6)
 
     # Stat boxes
     stats = [
-        ("266,000", "Records\nGenerated"),
-        ("19 / 19",  "Quality Checks\nPassed"),
-        ("~5 min",   "End-to-End\nPipeline"),
-        ("$0",       "Development\nCost"),
+        ("266K",  "Total Records\nGenerated",   ACCENT),
+        ("19/19", "Quality Checks\nPassed",      GREEN),
+        ("9",     "Notebooks\nDeployed",         BLUE),
+        ("7",     "ChatOps AI\nTools",           ORANGE),
+        ("$0",    "Cloud Cost\nPart 1 (Local)",  GREEN),
     ]
-    bw = Inches(2.8)
-    for i, (num, lbl) in enumerate(stats):
-        stat_box(s, Inches(0.3) + i * (bw + Inches(0.27)),
-                 Inches(1.6), bw, Inches(1.3), num, lbl, ACCENT)
+    for i, (num, label, col) in enumerate(stats):
+        x = Inches(0.3) + i * Inches(2.55)
+        stat_box(s, x, Inches(1.55), Inches(2.35), Inches(1.15), num, label, col)
 
-    # Two columns
-    col_top = Inches(3.1)
-    col_h   = Inches(3.6)
+    # Part 1 achievements
+    rect(s, Inches(0.3), Inches(2.9), Inches(6.1), Inches(3.9), fill_color=WHITE)
+    rect(s, Inches(0.3), Inches(2.9), Inches(6.1), Pt(4), fill_color=GREEN)
+    txt(s, "Part 1 — Local POC  [COMPLETE]", Inches(0.5), Inches(2.94),
+        Inches(5.7), Inches(0.36), font_size=13, bold=True, color=GREEN)
 
-    # Left — What we built
-    rect(s, Inches(0.3), col_top, Inches(5.9), col_h, fill_color=WHITE)
-    rect(s, Inches(0.3), col_top, Inches(5.9), Pt(4), fill_color=BLUE)
-    txt(s, "What We Built", Inches(0.5), col_top + Inches(0.1),
-        Inches(5.5), Inches(0.4), font_size=15, bold=True, color=BLUE)
-
-    built = [
-        "Medallion pipeline: Bronze → Silver → Gold",
-        "3 data sources: Time Series, SQL Snapshot, Forecasts",
-        "Delta Sharing: simulated Utilitics → vendor (read-only protocol)",
-        "ChatOps: WhatsApp → Claude AI → pipeline control",
-        "Power BI: 4 Gold tables connected as dashboards",
-        "SQLite as real DB source (Azure SQL in Part 2)",
-        "Full docs: Word guide, PPT, flow diagram (HTML)",
+    done_items = [
+        ("Data generation",         "168K + 14K + 84K records, 3 formats"),
+        ("Bronze ingestion",        "CSV, SQLite, Parquet -> Delta Lake"),
+        ("Silver quality checks",   "19 DQ rules, dedup, null filter"),
+        ("Gold aggregations",       "4 gold tables: meter, demand, assets, forecast"),
+        ("Delta Sharing",           "Vendor token, profile JSON, read-only"),
+        ("ChatOps (WhatsApp)",      "7 tools: run, status, quality, logs, CI..."),
+        ("CI/CD pipeline",          "GitHub Actions -> Databricks auto-deploy"),
+        ("Nightly build",           "Windows Task Scheduler 2AM + WhatsApp alert"),
+        ("Full pipeline run",       "234.5 sec, ALL STEPS PASSED on laptop"),
     ]
-    top_b = col_top + Inches(0.6)
-    for item in built:
-        txt(s, f"✔  {item}", Inches(0.5), top_b, Inches(5.5), Inches(0.4),
-            font_size=12, color=DARK_GRAY)
-        top_b += Inches(0.41)
+    for i, (label, detail) in enumerate(done_items):
+        y = Inches(3.4) + i * Inches(0.36)
+        txt(s, "+", Inches(0.45), y, Inches(0.25), Inches(0.28),
+            font_size=10, bold=True, color=WHITE,
+            align=PP_ALIGN.CENTER)
+        rect(s, Inches(0.45), y + Inches(0.02), Inches(0.22), Inches(0.24),
+             fill_color=GREEN)
+        txt(s, "+", Inches(0.45), y + Inches(0.02), Inches(0.22), Inches(0.24),
+            font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        txt(s, label, Inches(0.75), y, Inches(2.3), Inches(0.28),
+            font_size=11, bold=True, color=DARK_GRAY)
+        txt(s, detail, Inches(3.1), y, Inches(3.1), Inches(0.28),
+            font_size=9, color=MID_GRAY)
 
-    # Right — Live highlight
-    rect(s, Inches(6.5), col_top, Inches(6.5), col_h, fill_color=NAVY)
-    rect(s, Inches(6.5), col_top, Inches(6.5), Pt(4), fill_color=GREEN)
-    txt(s, "Live Highlight — ChatOps", Inches(6.7), col_top + Inches(0.1),
-        Inches(6.2), Inches(0.4), font_size=15, bold=True, color=GREEN)
+    # Part 2 status
+    rect(s, Inches(6.6), Inches(2.9), Inches(6.4), Inches(3.9), fill_color=NAVY)
+    rect(s, Inches(6.6), Inches(2.9), Inches(6.4), Pt(4), fill_color=ORANGE)
+    txt(s, "Part 2 — Azure Migration  [IN PROGRESS]", Inches(6.8), Inches(2.94),
+        Inches(6.0), Inches(0.36), font_size=13, bold=True, color=ORANGE)
 
-    steps = [
-        ("WhatsApp message: 'Run pipeline'", ACCENT),
-        ("Twilio receives → sends to webhook", WHITE),
-        ("FastAPI webhook → Claude AI (tool use)", WHITE),
-        ("Claude calls run_pipeline tool", ACCENT),
-        ("Pipeline runs in background (~3.5 min)", WHITE),
-        ("Result sent back to WhatsApp", GREEN),
+    progress = [
+        (True,  "Resource group + ADLS Gen2 provisioned"),
+        (True,  "Databricks Premium + Unity Catalog enabled"),
+        (True,  "Cluster running (Standard_DS3_v2)"),
+        (True,  "9 notebooks uploaded via CI/CD"),
+        (True,  "abfss:// paths configured in config"),
+        (True,  "Secret scope for credentials"),
+        (False, "Run full pipeline 01->05 on Databricks"),
+        (False, "Register Delta tables in Unity Catalog"),
+        (False, "Real Delta Sharing (Phase 8)"),
+        (False, "Databricks Workflows scheduling (Phase 9)"),
+        (False, "Azure Functions for permanent ChatOps (Phase 10)"),
     ]
-
-    top_s = col_top + Inches(0.65)
-    for i, (step, color) in enumerate(steps):
-        txt(s, f"{i+1}", Inches(6.7), top_s, Inches(0.35), Inches(0.38),
-            font_size=12, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
-        txt(s, step, Inches(7.15), top_s, Inches(5.6), Inches(0.38),
-            font_size=12, color=color)
-        top_s += Inches(0.42)
-
-
-def slide_11_part2(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Part 2 — Azure Cloud Migration", "Infrastructure complete. Pipeline ready to run.")
-    footer(s, 11)
-
-    items = [
-        (True,  "Azure Subscription",       "Pay-As-You-Go | Sub ID: d926b212-..."),
-        (True,  "Resource Group",            "rg-databricks-poc (UK South)"),
-        (True,  "Databricks Workspace",      "dbw-poc-datasharing — Premium SKU"),
-        (True,  "ADLS Gen2 Storage",         "stpocadls4417 — raw-data + processed-data containers"),
-        (True,  "Data Uploaded",             "69 files (Parquet) uploaded to ADLS"),
-        (True,  "Secret Scope",              "poc-secrets — storage key secured"),
-        (True,  "Cluster",                   "poc-single-node — Standard_E2s_v3, 10 min auto-terminate"),
-        (True,  "Unity Catalog",             "Auto-enabled — data_sharing_poc catalog created"),
-        (True,  "Schemas",                   "bronze / silver / gold schemas created"),
-        (True,  "Notebooks Deployed",        "9 notebooks uploaded to /POC/ workspace folder"),
-        (False, "Pipeline Run on Azure",     "01_generate_data → 05_validate — NEXT STEP"),
-        (False, "Tables in Unity Catalog",   "Register Delta tables after pipeline run"),
-        (False, "Real Delta Sharing",        "Phase 8 — Unity Catalog sharing setup"),
-        (False, "Databricks Workflows",      "Phase 9 — scheduled pipeline"),
-        (False, "Azure Functions ChatOps",   "Phase 10 — permanent webhook (no ngrok)"),
-    ]
-
-    col_w = Inches(5.8)
-    top   = Inches(1.65)
-    gap   = Inches(0.355)
-
-    for i, (done, label, detail) in enumerate(items):
-        col = i // 8
-        row = i  % 8
-        x   = Inches(0.3) + col * (col_w + Inches(0.9))
-        y   = top + row * gap
-
-        color  = GREEN if done else ORANGE
-        symbol = "✔" if done else "○"
-        rect(s, x, y, Inches(0.32), Inches(0.3), fill_color=color)
-        txt(s, symbol, x, y, Inches(0.32), Inches(0.3),
-            font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-        txt(s, label, x + Inches(0.38), y, Inches(2.1), Inches(0.3),
-            font_size=12, bold=True, color=DARK_GRAY if done else ORANGE)
-        txt(s, detail, x + Inches(2.55), y, Inches(3.2), Inches(0.3),
-            font_size=10, color=MID_GRAY)
+    for i, (done, label) in enumerate(progress):
+        color = GREEN if done else ORANGE
+        sym = "+" if done else "o"
+        y = Inches(3.4) + i * Inches(0.33)
+        rect(s, Inches(6.75), y + Inches(0.02), Inches(0.22), Inches(0.24),
+             fill_color=color)
+        txt(s, sym, Inches(6.75), y + Inches(0.02), Inches(0.22), Inches(0.24),
+            font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        txt(s, label, Inches(7.05), y, Inches(5.7), Inches(0.28),
+            font_size=10, color=WHITE if done else ORANGE, bold=done)
 
 
-def slide_12_achievements(prs):
+# ─── Slide 7: ChatOps & CI/CD ─────────────────────────────────────────────────
+
+def slide_07_chatops_cicd(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
-    header_bar(s, "Key Achievements", "What makes this POC stand out")
-    footer(s, 12)
+    header_bar(s, "ChatOps & CI/CD — Pipeline Automation",
+               "Control the entire pipeline from WhatsApp — and deploy code via GitHub")
+    footer(s, 7)
 
-    achievements = [
-        (ACCENT, "Zero-Cost Development",
-         "$0 spent during entire Part 1. Full platform validated before any Azure spend."),
-        (GREEN,  "Live End-to-End Automation",
-         "WhatsApp message triggers Claude AI which controls the pipeline. Tested live on 2026-03-20."),
-        (BLUE,   "Production-Grade Architecture",
-         "Medallion pattern, Delta Lake ACID, Unity Catalog governance — same as enterprise deployments."),
-        (ORANGE, "Mixed Data Sources",
-         "Time series (Parquet) + SQL database (SQLite→Azure SQL) + files — realistic real-world setup."),
-        (ACCENT, "Same Code — Two Environments",
-         "Only 3 lines change between local and Azure. No rewrite. No rework. Proven migration path."),
-        (GREEN,  "Full Documentation",
-         "Word guide, PowerPoint, interactive HTML flow diagram, conversation log — all auto-generated."),
+    # ChatOps flow (left)
+    rect(s, Inches(0.3), Inches(1.55), Inches(6.2), Inches(5.1), fill_color=DARK_GRAY)
+    rect(s, Inches(0.3), Inches(1.55), Inches(6.2), Pt(4), fill_color=ACCENT)
+    txt(s, "ChatOps — WhatsApp Pipeline Control",
+        Inches(0.5), Inches(1.6), Inches(5.8), Inches(0.36),
+        font_size=13, bold=True, color=ACCENT)
+
+    flow = [
+        (ACCENT, "WhatsApp Message",     "User sends: 'run pipeline'"),
+        (BLUE,   "Twilio Webhook",       "Routes message to FastAPI server"),
+        (BLUE,   "ngrok Tunnel",         "Exposes localhost:8000 to internet"),
+        (ORANGE, "FastAPI Server",       "automation/chatops_server.py"),
+        (GREEN,  "Claude AI (7 tools)",  "Interprets intent, calls tools"),
+        (GREEN,  "Pipeline / CI / Logs", "Executes action, returns result"),
     ]
+    for i, (color, step, detail) in enumerate(flow):
+        y = Inches(2.1) + i * Inches(0.62)
+        rect(s, Inches(0.5), y, Inches(5.8), Inches(0.5), fill_color=color)
+        txt(s, step, Inches(0.6), y + Inches(0.04), Inches(2.2), Inches(0.38),
+            font_size=11, bold=True, color=WHITE)
+        txt(s, detail, Inches(2.9), y + Inches(0.04), Inches(3.3), Inches(0.38),
+            font_size=10, color=WHITE)
+        if i < 5:
+            txt(s, "  |", Inches(1.3), y + Inches(0.5), Inches(0.4), Inches(0.18),
+                font_size=10, color=ACCENT)
 
-    bw = Inches(3.8)
-    bh = Inches(1.9)
+    # 7 tools
+    tools = [
+        "run_pipeline", "get_status", "get_quality_report",
+        "get_logs", "get_pipeline_config", "run_ci", "share_data",
+    ]
+    txt(s, "7 Available Tools:", Inches(0.5), Inches(5.95), Inches(5.8), Inches(0.28),
+        font_size=11, bold=True, color=ACCENT)
+    tool_str = "  |  ".join(tools)
+    txt(s, tool_str, Inches(0.5), Inches(6.25), Inches(5.8), Inches(0.3),
+        font_size=9, color=LIGHT_GRAY)
 
-    for i, (color, title, desc) in enumerate(achievements):
-        col = i % 3
-        row = i // 3
-        x   = Inches(0.3) + col * (bw + Inches(0.43))
-        y   = Inches(1.65) + row * (bh + Inches(0.2))
+    # CI/CD flow (right)
+    rect(s, Inches(6.8), Inches(1.55), Inches(6.2), Inches(5.1), fill_color=DARK_GRAY)
+    rect(s, Inches(6.8), Inches(1.55), Inches(6.2), Pt(4), fill_color=GREEN)
+    txt(s, "CI/CD — Automated Code Quality & Deploy",
+        Inches(7.0), Inches(1.6), Inches(5.8), Inches(0.36),
+        font_size=13, bold=True, color=GREEN)
 
-        rect(s, x, y, bw, bh, fill_color=DARK_GRAY)
-        rect(s, x, y, bw, Pt(5), fill_color=color)
-        rect(s, x, y, Pt(5), bh, fill_color=color)
+    ci_steps = [
+        (GREEN,  "git push -> main",          "Developer pushes code"),
+        (ACCENT, "GitHub Actions (CI)",        ".github/workflows/ci.yml triggers"),
+        (ACCENT, "check_syntax.py",            "25 files: syntax + 6 secret patterns"),
+        (GREEN,  "CI passes",                  "0 errors, 0 secret leaks"),
+        (GREEN,  "GitHub Actions (CD)",        ".github/workflows/cd.yml triggers"),
+        (GREEN,  "upload_notebooks.py",        "9 notebooks auto-deployed to Databricks"),
+    ]
+    for i, (color, step, detail) in enumerate(ci_steps):
+        y = Inches(2.1) + i * Inches(0.62)
+        rect(s, Inches(7.0), y, Inches(5.8), Inches(0.5), fill_color=color)
+        txt(s, step, Inches(7.1), y + Inches(0.04), Inches(2.2), Inches(0.38),
+            font_size=11, bold=True, color=WHITE)
+        txt(s, detail, Inches(9.4), y + Inches(0.04), Inches(3.3), Inches(0.38),
+            font_size=10, color=WHITE)
+        if i < 5:
+            txt(s, "  |", Inches(7.9), y + Inches(0.5), Inches(0.4), Inches(0.18),
+                font_size=10, color=GREEN)
 
-        txt(s, title, x + Inches(0.15), y + Inches(0.12), bw - Inches(0.2), Inches(0.45),
-            font_size=15, bold=True, color=color)
-        txt(s, desc,  x + Inches(0.15), y + Inches(0.62), bw - Inches(0.2), Inches(1.1),
-            font_size=12, color=LIGHT_GRAY)
+    rect(s, Inches(7.0), Inches(5.95), Inches(5.8), Inches(0.55), fill_color=BLUE)
+    txt(s, "Nightly Build: Windows Task Scheduler @ 2AM  ->  full pipeline  ->  WhatsApp alert",
+        Inches(7.1), Inches(6.02), Inches(5.6), Inches(0.4),
+        font_size=10, color=WHITE)
 
 
-def slide_13_next(prs):
+# ─── Slide 8: Business Value & Roadmap ────────────────────────────────────────
+
+def slide_08_value_roadmap(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "What's Next", "Remaining phases — Azure pipeline to production-ready")
-    footer(s, 13)
+    header_bar(s, "Business Value & Roadmap",
+               "What this delivers — and what comes next")
+    footer(s, 8)
 
-    phases = [
-        ("THIS WEEK",  ACCENT,  [
-            ("Run Azure pipeline",       "01_generate_data → 05_validate on cloud cluster"),
-            ("Register Unity Catalog",   "Register all Delta tables in data_sharing_poc catalog"),
-        ]),
-        ("PHASE 8",    BLUE,    [
-            ("Real Delta Sharing",       "Unity Catalog shares — Utilitics → Vendor (read-only protocol)"),
-            ("Vendor write-back",        "Separate share or REST API for vendor → Utilitics responses"),
-        ]),
-        ("PHASE 9",    GREEN,   [
-            ("Databricks Workflows",     "Scheduled DAG replacing manual notebook runs"),
-            ("Alerting",                 "Email/WhatsApp on failure, Azure Monitor integration"),
-        ]),
-        ("PHASE 10",   ORANGE,  [
-            ("Azure Functions webhook",  "Permanent ChatOps endpoint — no more ngrok"),
-            ("Azure SQL migration",      "Replace SQLite with Azure SQL (one connection string change)"),
-        ]),
-    ]
-
-    bw = Inches(2.9)
-    bh = Inches(4.8)
-
-    for i, (phase, color, tasks) in enumerate(phases):
-        x = Inches(0.3) + i * (bw + Inches(0.35))
-        y = Inches(1.65)
-
-        rect(s, x, y, bw, bh, fill_color=WHITE)
-        rect(s, x, y, bw, Pt(5), fill_color=color)
-
-        # Phase badge
-        rect(s, x, y, bw, Inches(0.45), fill_color=color)
-        txt(s, phase, x, y, bw, Inches(0.45),
-            font_size=13, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-
-        top_t = y + Inches(0.55)
-        for task, detail in tasks:
-            rect(s, x + Inches(0.15), top_t, Inches(0.06), Inches(0.3), fill_color=color)
-            txt(s, task, x + Inches(0.3), top_t, bw - Inches(0.4), Inches(0.32),
-                font_size=13, bold=True, color=DARK_GRAY)
-            txt(s, detail, x + Inches(0.3), top_t + Inches(0.33), bw - Inches(0.4), Inches(0.8),
-                font_size=11, color=MID_GRAY)
-            top_t += Inches(1.3)
-
-
-def slide_14_value(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
-    header_bar(s, "Business Value", "What this platform delivers when complete")
-    footer(s, 14)
+    # Value cards (left)
+    rect(s, Inches(0.3), Inches(1.55), Inches(6.2), Inches(5.1), fill_color=WHITE)
+    rect(s, Inches(0.3), Inches(1.55), Inches(6.2), Pt(4), fill_color=BLUE)
+    txt(s, "Business Value Delivered",
+        Inches(0.5), Inches(1.6), Inches(5.8), Inches(0.36),
+        font_size=14, bold=True, color=BLUE)
 
     values = [
-        ("Cost Efficiency",    ACCENT,
-         "~$5-8/month on Azure vs enterprise alternatives at $500+/month.\nFull Premium Databricks features at minimal cost."),
-        ("Data Governance",    GREEN,
-         "Unity Catalog provides centralised access control, lineage tracking,\nand auditable data sharing — meets compliance requirements."),
-        ("Vendor Data Sharing", BLUE,
-         "Delta Sharing protocol allows external vendors to access\nGold data securely without copying or exposing raw data."),
-        ("Operational Control", ORANGE,
-         "Pipeline controllable via WhatsApp from anywhere.\nClaude AI interprets natural language commands — no CLI needed."),
-        ("Scalability",        ACCENT,
-         "From 266K records (POC) to millions — same architecture.\nAdd more data sources by adding one notebook."),
-        ("Team Enablement",    GREEN,
-         "Full documentation, conversation log, and guides created.\nAny team member can pick up, understand, and extend the work."),
+        (ACCENT, "Zero-Copy Data Sharing",
+         "Vendors read Gold data without copy/export. No PII exposure, full audit trail."),
+        (GREEN,  "Cost Efficiency",
+         "POC at $0 (local). Azure run <$25/month. Scales to TB without RDBMS licensing."),
+        (ORANGE, "Pipeline Reliability",
+         "19 DQ checks catch bad data before it reaches Gold. Nightly alerts via WhatsApp."),
+        (BLUE,   "Developer Velocity",
+         "CI/CD auto-deploys on push. Same code local and cloud — no manual notebook uploads."),
+        (GREEN,  "Real-Time Control",
+         "Operations team controls pipeline from WhatsApp — no VPN, no dashboard login needed."),
     ]
+    for i, (color, title, desc) in enumerate(values):
+        y = Inches(2.1) + i * Inches(0.85)
+        rect(s, Inches(0.5), y, Inches(5.8), Inches(0.75), fill_color=LIGHT_GRAY)
+        rect(s, Inches(0.5), y, Pt(5), Inches(0.75), fill_color=color)
+        txt(s, title, Inches(0.65), y + Inches(0.04), Inches(5.5), Inches(0.3),
+            font_size=12, bold=True, color=color)
+        txt(s, desc, Inches(0.65), y + Inches(0.34), Inches(5.5), Inches(0.35),
+            font_size=10, color=DARK_GRAY)
 
-    bw = Inches(3.8)
-    bh = Inches(1.85)
+    # Roadmap (right)
+    rect(s, Inches(6.8), Inches(1.55), Inches(6.2), Inches(5.1), fill_color=NAVY)
+    rect(s, Inches(6.8), Inches(1.55), Inches(6.2), Pt(4), fill_color=ACCENT)
+    txt(s, "Remaining Roadmap",
+        Inches(7.0), Inches(1.6), Inches(5.8), Inches(0.36),
+        font_size=14, bold=True, color=ACCENT)
 
-    for i, (title, color, desc) in enumerate(values):
-        col = i % 3
-        row = i // 3
-        x   = Inches(0.3) + col * (bw + Inches(0.43))
-        y   = Inches(1.65) + row * (bh + Inches(0.2))
+    roadmap = [
+        (False, "Phase 7", "Run full pipeline on Azure Databricks",
+         "NEXT: Execute 01->05 on cluster — validates cloud config"),
+        (False, "Phase 8", "Real Delta Sharing via Unity Catalog",
+         "Register Gold tables, issue vendor share tokens"),
+        (False, "Phase 9", "Databricks Workflows scheduling",
+         "Replace manual runs with cron-scheduled jobs"),
+        (False, "Phase 10", "Azure Functions for ChatOps",
+         "Permanent webhook (replaces ngrok) — production-ready"),
+        (False, "Phase 11", "Power BI / Databricks SQL",
+         "Dashboard on Gold layer for business users"),
+    ]
+    for i, (done, phase, title, detail) in enumerate(roadmap):
+        color = GREEN if done else ORANGE
+        y = Inches(2.1) + i * Inches(0.88)
+        rect(s, Inches(7.0), y, Inches(5.8), Inches(0.78), fill_color=DARK_GRAY)
+        rect(s, Inches(7.0), y, Pt(5), Inches(0.78), fill_color=color)
+        txt(s, phase, Inches(7.12), y + Inches(0.04), Inches(1.0), Inches(0.28),
+            font_size=10, bold=True, color=color)
+        txt(s, title, Inches(8.2), y + Inches(0.04), Inches(4.5), Inches(0.3),
+            font_size=11, bold=True, color=WHITE)
+        txt(s, detail, Inches(7.12), y + Inches(0.38), Inches(5.6), Inches(0.3),
+            font_size=10, color=MID_GRAY, italic=True)
 
-        rect(s, x, y, bw, bh, fill_color=DARK_GRAY)
-        rect(s, x, y, bw, Pt(5), fill_color=color)
+    # Budget line
+    rect(s, Inches(0.3), Inches(6.7), Inches(12.7), Inches(0.4), fill_color=DARK_GRAY)
+    txt(s, "Budget:  Part 1 = $0 (laptop)  |  Part 2 = ~$5-8/month (Azure Premium)  "
+        "|  Production estimate = $80-120/month (auto-scale clusters)",
+        Inches(0.5), Inches(6.72), Inches(12.3), Inches(0.35),
+        font_size=10, color=LIGHT_GRAY)
 
-        txt(s, title, x + Inches(0.15), y + Inches(0.1), bw - Inches(0.2), Inches(0.4),
-            font_size=15, bold=True, color=color)
-        txt(s, desc, x + Inches(0.15), y + Inches(0.58), bw - Inches(0.2), Inches(1.1),
-            font_size=11, color=LIGHT_GRAY)
 
+# ─── Slide 9: Thank You ───────────────────────────────────────────────────────
 
-def slide_15_thankyou(prs):
+def slide_09_thankyou(prs):
     s = blank_slide(prs)
     rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
     rect(s, 0, 0, Inches(0.18), SLIDE_H, fill_color=ACCENT)
     rect(s, 0, Inches(6.8), SLIDE_W, Pt(4), fill_color=ACCENT)
 
-    txt(s, "Thank You", Inches(0.5), Inches(1.0), Inches(8), Inches(1.5),
-        font_size=52, bold=True, color=WHITE)
-
-    rect(s, Inches(0.5), Inches(2.5), Inches(4), Pt(3), fill_color=ACCENT)
-
-    txt(s, "Questions & Discussion", Inches(0.5), Inches(2.7), Inches(8), Inches(0.6),
+    txt(s, "Thank You", Inches(0.4), Inches(1.0), Inches(12), Inches(1.5),
+        font_size=54, bold=True, color=WHITE)
+    txt(s, "Questions & Open Discussion",
+        Inches(0.4), Inches(2.4), Inches(12), Inches(0.6),
         font_size=22, color=ACCENT, italic=True)
+    rect(s, Inches(0.4), Inches(3.1), Inches(5), Pt(2), fill_color=ACCENT)
 
-    contact = [
-        ("Presenter",  "Radhakrishnan Karnakumar"),
-        ("Workspace",  "https://adb-7405604806384457.17.azuredatabricks.net"),
-        ("Repo",       "C:/Projects/databricks-poc"),
-        ("Docs",       "docs/Utilitics_Implementation_Guide.docx"),
+    contacts = [
+        ("Presenter",     "Radhakrishnan Karnakumar"),
+        ("GitHub",        "github.com/RadhaK / databricks-poc"),
+        ("ChatOps",       "WhatsApp -> Twilio -> Claude AI"),
+        ("Azure Tenant",  "Databricks Premium + Unity Catalog"),
     ]
-    top_c = Inches(3.5)
-    for label, value in contact:
-        txt(s, f"{label}:", Inches(0.5), top_c, Inches(1.8), Inches(0.38),
-            font_size=13, color=MID_GRAY, bold=True)
-        txt(s, value, Inches(2.3), top_c, Inches(8), Inches(0.38),
-            font_size=13, color=WHITE)
-        top_c += Inches(0.45)
+    for i, (label, value) in enumerate(contacts):
+        y = Inches(3.3) + i * Inches(0.5)
+        txt(s, label + ":", Inches(0.4), y, Inches(1.8), Inches(0.4),
+            font_size=13, color=MID_GRAY)
+        txt(s, value, Inches(2.3), y, Inches(6), Inches(0.4),
+            font_size=13, color=WHITE, bold=True)
 
-    # Right side summary stats
-    rect(s, Inches(9.8), Inches(1.5), Inches(3.2), Inches(5.0), fill_color=DARK_GRAY)
-    rect(s, Inches(9.8), Inches(1.5), Inches(3.2), Pt(4), fill_color=ACCENT)
-    txt(s, "POC IN NUMBERS", Inches(9.8), Inches(1.58), Inches(3.2), Inches(0.4),
-        font_size=12, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
-    footer(s, 15)
-
-    numbers = [
-        ("266,000", "records generated"),
-        ("19 / 19",  "quality checks pass"),
-        ("10",       "Azure components"),
-        ("9",        "notebooks deployed"),
-        ("6",        "Claude AI tools"),
-        ("$0",       "local dev cost"),
-        ("~$5-8",    "per month on Azure"),
+    # Key takeaways box
+    rect(s, Inches(8.5), Inches(1.5), Inches(4.5), Inches(5.3), fill_color=DARK_GRAY)
+    rect(s, Inches(8.5), Inches(1.5), Inches(4.5), Pt(4), fill_color=GREEN)
+    txt(s, "Key Takeaways", Inches(8.65), Inches(1.56),
+        Inches(4.2), Inches(0.36), font_size=13, bold=True, color=GREEN)
+    takeaways = [
+        "Full end-to-end pipeline working",
+        "266K records across 3 data formats",
+        "19/19 quality checks passing",
+        "Live ChatOps via WhatsApp + Claude AI",
+        "CI/CD auto-deploys to Databricks",
+        "Azure infrastructure provisioned",
+        "Ready to run on cloud - next session",
     ]
-    top_n = Inches(2.1)
-    for num, lbl in numbers:
-        txt(s, num, Inches(9.9), top_n, Inches(1.1), Inches(0.38),
-            font_size=14, bold=True, color=ACCENT, align=PP_ALIGN.RIGHT)
-        txt(s, lbl, Inches(11.1), top_n, Inches(1.8), Inches(0.38),
-            font_size=12, color=WHITE)
-        top_n += Inches(0.42)
+    for i, t in enumerate(takeaways):
+        rect(s, Inches(8.65), Inches(2.08) + i * Inches(0.55),
+             Inches(0.22), Inches(0.22), fill_color=GREEN)
+        txt(s, "+", Inches(8.65), Inches(2.08) + i * Inches(0.55),
+            Inches(0.22), Inches(0.22),
+            font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        txt(s, t, Inches(8.95), Inches(2.06) + i * Inches(0.55),
+            Inches(3.9), Inches(0.3), font_size=11, color=LIGHT_GRAY)
 
-
-# ─── New Databricks Slides ────────────────────────────────────────────────────
-
-def slide_05_what_is_databricks(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "What is Databricks?", "Founded 2013 by creators of Apache Spark (UC Berkeley)")
-    footer(s, 5)
-
-    # Left — simple explanation
-    rect(s, Inches(0.3), Inches(1.6), Inches(5.8), Inches(5.1), fill_color=WHITE)
-    rect(s, Inches(0.3), Inches(1.6), Inches(5.8), Pt(4), fill_color=BLUE)
-    txt(s, "In Simple Terms", Inches(0.5), Inches(1.72), Inches(5.4), Inches(0.4),
-        font_size=15, bold=True, color=BLUE)
-
-    simple = [
-        ("Think of it as...", True, DARK_GRAY),
-        ("Excel for millions of rows — running in the cloud,", False, DARK_GRAY),
-        ("processing data 100x faster than traditional tools,", False, DARK_GRAY),
-        ("with AI, governance, and sharing built in.", False, DARK_GRAY),
-        ("", False, WHITE),
-        ("What it replaces...", True, DARK_GRAY),
-        ("Multiple tools: ETL tools + data warehouses +", False, DARK_GRAY),
-        ("ML platforms + data catalogues + file storage =", False, DARK_GRAY),
-        ("all unified in one platform.", False, DARK_GRAY),
-        ("", False, WHITE),
-        ("Who uses it...", True, DARK_GRAY),
-        ("NHS, Shell, National Grid, HSBC, BT,", False, DARK_GRAY),
-        ("Netflix, Uber, Airbnb — and now Utilitics.", False, DARK_GRAY),
-    ]
-    txt_box(s, simple, Inches(0.5), Inches(2.2), Inches(5.4), Inches(4.2),
-            font_size=12, color=DARK_GRAY)
-
-    # Right — platform stack visual
-    rect(s, Inches(6.4), Inches(1.6), Inches(6.6), Inches(5.1), fill_color=NAVY)
-    rect(s, Inches(6.4), Inches(1.6), Inches(6.6), Pt(4), fill_color=ACCENT)
-    txt(s, "The Platform Stack", Inches(6.6), Inches(1.72), Inches(6.2), Inches(0.4),
-        font_size=15, bold=True, color=ACCENT)
-
-    layers = [
-        (RGBColor(0x6E,0x40,0xC9), "DATABRICKS WORKFLOWS",    "Schedule & automate pipelines"),
-        (RGBColor(0x00,0x70,0xC0), "UNITY CATALOG",           "Governance · Lineage · Delta Sharing"),
-        (RGBColor(0x1A,0xBC,0x9C), "DELTA LAKE",              "ACID storage · Time Travel · Schema"),
-        (RGBColor(0x00,0xAE,0xEF), "APACHE SPARK",            "Distributed compute — Python/SQL/Scala"),
-        (RGBColor(0x1B,0x4F,0x72), "CLOUD STORAGE",           "ADLS Gen2 / S3 / GCS underneath"),
-    ]
-    top_l = Inches(2.2)
-    for color, label, desc in layers:
-        rect(s, Inches(6.6), top_l, Inches(6.0), Inches(0.72), fill_color=color)
-        txt(s, label, Inches(6.75), top_l + Inches(0.04), Inches(3.5), Inches(0.35),
-            font_size=12, bold=True, color=WHITE)
-        txt(s, desc,  Inches(6.75), top_l + Inches(0.38), Inches(5.6), Inches(0.3),
-            font_size=10, color=LIGHT_GRAY)
-        top_l += Inches(0.8)
-
-    txt(s, "Each layer builds on the one below it",
-        Inches(6.6), Inches(6.28), Inches(6.0), Inches(0.3),
-        font_size=10, color=MID_GRAY, italic=True)
-
-
-def slide_06_databricks_features(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=LIGHT_GRAY)
-    header_bar(s, "Databricks Key Features", "Why it's the industry standard for data engineering")
-    footer(s, 6)
-
-    features = [
-        (ACCENT, "Apache Spark Engine",
-         "Processes data across many machines in parallel.\n100x faster than traditional tools.\nSame Python code — 1 machine or 1,000 machines."),
-        (GREEN, "Delta Lake Storage",
-         "ACID transactions — no corrupt data ever.\nTime Travel — query data as it was yesterday.\nSchema enforcement — bad data rejected at entry."),
-        (BLUE, "Medallion Architecture",
-         "Bronze (raw) → Silver (clean) → Gold (business).\nIndustry standard pattern — what we built.\nEach layer adds quality and business value."),
-        (RGBColor(0x6E,0x40,0xC9), "Unity Catalog",
-         "One place to control who sees what data.\nTracks every read/write — full audit trail.\nRequired for compliance and governance."),
-        (ORANGE, "Delta Sharing",
-         "Share Gold tables with vendors securely.\nOpen protocol — vendor needs no Databricks licence.\nRead-only — no raw data ever exposed."),
-        (RGBColor(0xC0,0x39,0x2B), "Databricks Workflows",
-         "Schedule pipelines: daily, hourly, on-trigger.\nRetry logic + alerting built in.\nReplaces manual notebook runs — our Phase 9."),
-    ]
-
-    bw = Inches(3.8)
-    bh = Inches(2.1)
-    for i, (color, title, desc) in enumerate(features):
-        col = i % 3
-        row = i // 3
-        x   = Inches(0.3) + col * (bw + Inches(0.43))
-        y   = Inches(1.65) + row * (bh + Inches(0.15))
-
-        rect(s, x, y, bw, bh, fill_color=WHITE)
-        rect(s, x, y, bw, Pt(5), fill_color=color)
-        rect(s, x, y, Pt(5), bh, fill_color=color)
-
-        txt(s, title, x + Inches(0.15), y + Inches(0.1), bw - Inches(0.25), Inches(0.38),
-            font_size=14, bold=True, color=color)
-        txt(s, desc,  x + Inches(0.15), y + Inches(0.55), bw - Inches(0.25), Inches(1.4),
-            font_size=11, color=DARK_GRAY)
-
-
-def slide_07_why_azure_databricks(prs):
-    s = blank_slide(prs)
-    rect(s, 0, 0, SLIDE_W, SLIDE_H, fill_color=NAVY)
-    header_bar(s, "Why Azure Databricks?", "Joint product — Microsoft + Databricks. Best of both worlds.")
-    footer(s, 7)
-
-    # Left — vs alternatives table
-    rect(s, Inches(0.3), Inches(1.6), Inches(6.1), Inches(5.1), fill_color=DARK_GRAY)
-    rect(s, Inches(0.3), Inches(1.6), Inches(6.1), Pt(4), fill_color=ACCENT)
-    txt(s, "Azure Databricks vs Alternatives", Inches(0.5), Inches(1.72),
-        Inches(5.7), Inches(0.4), font_size=14, bold=True, color=ACCENT)
-
-    headers = ["", "Azure\nDatabricks", "SQL\nServer", "Self-managed\nSpark", "Azure\nSynapse"]
-    col_x   = [Inches(0.35), Inches(2.05), Inches(3.15), Inches(4.2), Inches(5.25)]
-    col_w   = [Inches(1.65), Inches(1.0), Inches(1.0), Inches(1.0), Inches(1.0)]
-
-    for i, (h, x, w) in enumerate(zip(headers, col_x, col_w)):
-        txt(s, h, x, Inches(2.12), w, Inches(0.45),
-            font_size=9, bold=True,
-            color=ACCENT if i == 0 else (GREEN if i == 1 else MID_GRAY),
-            align=PP_ALIGN.CENTER)
-
-    rows = [
-        ("Setup time",         "5 min",  "1 day",  "1 week", "1 day"),
-        ("Scale to billions",  "Yes",    "No",     "Yes",    "Yes"),
-        ("Delta Lake native",  "Yes",    "No",     "Manual", "Partial"),
-        ("Unity Catalog",      "Yes",    "No",     "No",     "No"),
-        ("Delta Sharing",      "Yes",    "No",     "No",     "No"),
-        ("AI/ML built-in",     "Yes",    "No",     "No",     "Partial"),
-        ("Cost (our POC)",     "£5-8/m", "£50+/m", "£100+", "£20+/m"),
-        ("Azure AD integration","Native","No",     "Manual", "Native"),
-    ]
-
-    top_r = Inches(2.65)
-    for ri, (label, *vals) in enumerate(rows):
-        bg = RGBColor(0x2C,0x3E,0x50) if ri % 2 == 0 else DARK_GRAY
-        rect(s, Inches(0.35), top_r, Inches(5.95), Inches(0.34), fill_color=bg)
-        txt(s, label, Inches(0.4), top_r, Inches(1.6), Inches(0.34),
-            font_size=10, color=LIGHT_GRAY)
-        for i, val in enumerate(vals):
-            col = GREEN if val in ("Yes", "Native", "£5-8/m", "5 min") else (
-                  RGBColor(0xC0,0x39,0x2B) if val in ("No", "Manual") else MID_GRAY)
-            txt(s, val, col_x[i+1], top_r, col_w[i+1], Inches(0.34),
-                font_size=9, bold=(i == 0), color=col, align=PP_ALIGN.CENTER)
-        top_r += Inches(0.36)
-
-    # Right — Azure integrations
-    rect(s, Inches(6.7), Inches(1.6), Inches(6.3), Inches(5.1), fill_color=DARK_GRAY)
-    rect(s, Inches(6.7), Inches(1.6), Inches(6.3), Pt(4), fill_color=GREEN)
-    txt(s, "Azure Integrations We Use", Inches(6.9), Inches(1.72),
-        Inches(5.9), Inches(0.4), font_size=14, bold=True, color=GREEN)
-
-    integrations = [
-        (GREEN,  "ADLS Gen2",           "Our data lake — raw-data + processed-data containers"),
-        (ACCENT, "Secret Scope",        "poc-secrets — storage keys never hardcoded"),
-        (BLUE,   "Azure Active Directory","Workspace login — your Azure account"),
-        (ORANGE, "Azure Monitor",       "Budget alerts — ceiling set at $25/month"),
-        (GREEN,  "Unity Catalog",       "data_sharing_poc + bronze/silver/gold schemas"),
-        (RGBColor(0x6E,0x40,0xC9), "Azure Functions","Phase 10 — permanent ChatOps webhook"),
-        (ACCENT, "Azure SQL",           "Phase 10 — replaces SQLite for snapshot data"),
-    ]
-    top_i = Inches(2.2)
-    for color, label, detail in integrations:
-        rect(s, Inches(6.9), top_i, Inches(0.06), Inches(0.28), fill_color=color)
-        txt(s, label,  Inches(7.05), top_i,               Inches(1.8), Inches(0.28),
-            font_size=11, bold=True, color=color)
-        txt(s, detail, Inches(8.9),  top_i,               Inches(3.9), Inches(0.28),
-            font_size=10, color=LIGHT_GRAY)
-        top_i += Inches(0.42)
+    txt(s, "UTILITICS | Confidential | April 2026",
+        Inches(0.4), Inches(6.85), Inches(10), Inches(0.3),
+        font_size=9, color=MID_GRAY)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -916,27 +757,30 @@ def slide_07_why_azure_databricks(prs):
 def main():
     prs = new_prs()
 
-    print("Building presentation...")
-    slide_01_title(prs)                 ; print("  Slide  1 — Title")
-    slide_02_agenda(prs)                ; print("  Slide  2 — Agenda")
-    slide_03_requirement(prs)           ; print("  Slide  3 — Business Requirement")
-    slide_04_approach(prs)              ; print("  Slide  4 — Our Approach")
-    slide_05_what_is_databricks(prs)    ; print("  Slide  5 — What is Databricks?")
-    slide_06_databricks_features(prs)   ; print("  Slide  6 — Databricks Key Features")
-    slide_07_why_azure_databricks(prs)  ; print("  Slide  7 — Why Azure Databricks?")
-    slide_08_architecture(prs)          ; print("  Slide  8 — Solution Architecture")
-    slide_09_techstack(prs)             ; print("  Slide  9 — Tech Stack")
-    slide_10_part1(prs)                 ; print("  Slide 10 — Part 1 Complete")
-    slide_11_part2(prs)                 ; print("  Slide 11 — Part 2 Progress")
-    slide_12_achievements(prs)          ; print("  Slide 12 — Achievements")
-    slide_13_next(prs)                  ; print("  Slide 13 — What's Next")
-    slide_14_value(prs)                 ; print("  Slide 14 — Business Value")
-    slide_15_thankyou(prs)              ; print("  Slide 15 — Thank You")
+    print("Building 9-slide presentation...")
+    slide_01_title(prs)
+    print("  [1/9] Title slide")
+    slide_02_requirement_approach(prs)
+    print("  [2/9] Business Requirement & Approach")
+    slide_03_databricks_overview(prs)
+    print("  [3/9] What is Azure Databricks?")
+    slide_04_architecture(prs)
+    print("  [4/9] Solution Architecture")
+    slide_05_data_sources(prs)
+    print("  [5/9] Data Sources & Medallion Layers")
+    slide_06_poc_status(prs)
+    print("  [6/9] POC Status & Achievements")
+    slide_07_chatops_cicd(prs)
+    print("  [7/9] ChatOps & CI/CD")
+    slide_08_value_roadmap(prs)
+    print("  [8/9] Business Value & Roadmap")
+    slide_09_thankyou(prs)
+    print("  [9/9] Thank You")
 
-    out = r"C:\Projects\databricks-poc\Utilitics_Platform_Presentation.pptx"
+    out = "Utilitics_Databricks_POC.pptx"
     prs.save(out)
     print(f"\nSaved: {out}")
-    print("15 slides — ready for presentation")
+    print("Done.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,27 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell.exe -Command \"Stop-Process -Id 33408 -Force\")"
+      "Bash(powershell.exe -Command \"Stop-Process -Id 33408 -Force\")",
+      "Bash(venv/Scripts/python.exe ci/check_syntax.py)",
+      "Bash(powershell -Command \"icacls 'C:\\\\Projects\\\\databricks-poc\\\\lake\\\\sources'\")",
+      "Bash(powershell -Command \"icacls 'C:\\\\Projects\\\\databricks-poc\\\\lake\\\\raw'\")",
+      "Bash(venv/Scripts/python.exe notebooks/01_generate_data.py)",
+      "Bash(powershell:*)",
+      "Bash(venv/Scripts/python.exe -c ':*)",
+      "Bash(venv/Scripts/python.exe notebooks/02_ingest_bronze.py)",
+      "Bash(venv/Scripts/python.exe notebooks/run_pipeline.py)",
+      "Bash(venv/Scripts/python.exe create_presentation.py)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(pip install:*)",
+      "Bash(python3 -c ':*)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/krkri/AppData/Local/Programs/**)",
+      "Bash(/c/Projects/databricks-poc/venv/Scripts/python -c \"from pptx import Presentation; print\\('pptx ok'\\)\")",
+      "Bash(/c/Projects/databricks-poc/venv/Scripts/python -c ':*)",
+      "Bash(cp \"nxzen PPT template.potx\" \"nxzen_template_copy.pptx\")",
+      "Bash(/c/Projects/databricks-poc/venv/Scripts/python build_waterfall_nxzen.py)",
+      "Bash(rm \"C:/Projects/SDLC/build_waterfall_nxzen.py\")"
     ]
   }
 }
