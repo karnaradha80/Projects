@@ -13,7 +13,13 @@ $InProgressDir= "$ArchiveRoot\2_inprogress"
 $CompletedDir = "$ArchiveRoot\4_Processed_Source_Files"
 $TargetDir    = "$ArchiveRoot\3_Target"
 $TempWorkDir  = "$ArchiveRoot\2_inprogress\work"
+$SuccessLog   = "$ArchiveRoot\success_log.txt"
+$ErrorLog     = "$ArchiveRoot\error_log.txt"
 # ------------------------------------------------------------
+
+$runStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+Add-Content -Path $SuccessLog -Value "`n=== Run: $runStamp ==="
+Add-Content -Path $ErrorLog   -Value "`n=== Run: $runStamp ==="
 
 # Ensure all required folders exist
 foreach ($dir in @($InProgressDir, $CompletedDir, $TargetDir, $TempWorkDir)) {
@@ -46,6 +52,7 @@ foreach ($zipFileName in $fileList) {
     # ── 1. Validate the zip exists in Source ────────────────
     if (-not (Test-Path $sourceZip)) {
         Write-Warning "[$zipFileName] Not found in Source — skipping."
+        Add-Content -Path $ErrorLog -Value "$(Get-Date -Format 'HH:mm:ss') | $zipFileName | Not found in Source — skipped."
         continue
     }
 
@@ -67,6 +74,7 @@ foreach ($zipFileName in $fileList) {
     }
     catch {
         Write-Warning "  Failed to extract $zipFileName : $_"
+        Add-Content -Path $ErrorLog -Value "$(Get-Date -Format 'HH:mm:ss') | $zipFileName | Failed to extract: $_"
         continue
     }
 
@@ -93,6 +101,7 @@ foreach ($zipFileName in $fileList) {
     }
     catch {
         Write-Warning "  Failed to rezip $zipFileName : $_"
+        Add-Content -Path $ErrorLog -Value "$(Get-Date -Format 'HH:mm:ss') | $zipFileName | Failed to rezip: $_"
         continue
     }
 
@@ -104,6 +113,7 @@ foreach ($zipFileName in $fileList) {
     Move-Item -Path $inProgressZip -Destination $completedZip -Force
     Write-Host "  Original moved to Inprogress\Completed."
     Write-Host "  [$zipFileName] Done.`n"
+    Add-Content -Path $SuccessLog -Value "$(Get-Date -Format 'HH:mm:ss') | $zipFileName | Processed OK — $renamedCount file(s) renamed to .txt."
 }
 
 # Cleanup empty work dir
