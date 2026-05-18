@@ -200,14 +200,21 @@ with st.sidebar:
         else:
             st.caption(f'{total} file(s) found in input/')
 
-            # Quick-select buttons
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                if st.button('First 10', use_container_width=True):
-                    st.session_state['batch_files'] = all_files[:10]
-            with bc2:
-                if st.button(f'All ({total})', use_container_width=True):
-                    st.session_state['batch_files'] = all_files
+            # Select first N
+            nc1, nc2 = st.columns([2, 1])
+            with nc1:
+                first_n = st.number_input('Select first N files', min_value=1,
+                                          max_value=total, value=min(10, total),
+                                          step=1, key='batch_first_n')
+            with nc2:
+                st.markdown('<div style="margin-top:28px"></div>',
+                            unsafe_allow_html=True)
+                if st.button('Select', use_container_width=True, key='btn_first_n'):
+                    st.session_state['batch_files'] = all_files[:int(first_n)]
+
+            # Select all
+            if st.button(f'Select All ({total})', use_container_width=True):
+                st.session_state['batch_files'] = all_files
 
             # Manual multi-select
             selected = st.multiselect(
@@ -256,8 +263,8 @@ if run_mode == 'Batch Run':
     batch_files = st.session_state.get('batch_files', [])
 
     if not batch_files:
-        st.info('Select files to process using the sidebar buttons (First 10 / All) '
-                'or the multiselect picker.')
+        st.info('Select files to process using the sidebar — type a number and click Select, '
+                'use Select All, or pick individual files from the multiselect.')
     else:
         st.markdown(f'**{len(batch_files)} file(s) queued:**')
         with st.expander('Show selected files', expanded=False):
