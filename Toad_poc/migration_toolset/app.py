@@ -143,42 +143,88 @@ with st.sidebar:
     st.caption('Toad → Azure Data Factory')
     st.divider()
 
-    # Report selection
-    st.subheader('Report')
-    reports = _existing_reports()
-    mode = st.radio('Select mode', ['Choose existing', 'Enter name'],
-                    horizontal=True, label_visibility='collapsed')
-
-    if mode == 'Choose existing':
-        report_name = st.selectbox('Report', reports,
-                                   placeholder='-- select --',
-                                   index=None) if reports else None
-        if not reports:
-            st.info('No reports yet. Upload a file in the Sanitize tab.')
-    else:
-        report_name = st.text_input('Report name', placeholder='e.g. BC_BIMIO_267_Daily')
-        if report_name:
-            report_name = report_name.strip()
+    # Run mode
+    st.subheader('Run Mode')
+    run_mode = st.radio('run_mode', ['Single Report', 'Batch Run'],
+                        horizontal=True, label_visibility='collapsed')
 
     st.divider()
 
-    # Step status
-    if report_name:
-        status = _step_status(report_name)
-        st.subheader('Progress')
-        STEP_LABELS = {
-            1: 'Sanitize',
-            2: 'ADF Templates',
-            3: 'Config Setup',
-            4: 'Deploy Scripts',
-            5: 'Blob Upload',
-        }
-        for step, label in STEP_LABELS.items():
-            done = status.get(step, False)
-            icon = '✅' if done else '⭕'
-            st.markdown(f'{icon} **Step {step}** — {label}')
-    else:
-        st.info('Select or enter a report name above.')
+    report_name = None  # default
+
+    if run_mode == 'Single Report':
+        st.subheader('Report')
+        reports = _existing_reports()
+        sel_mode = st.radio('sel_mode', ['Choose existing', 'Enter name'],
+                            horizontal=True, label_visibility='collapsed')
+
+        if sel_mode == 'Choose existing':
+            report_name = st.selectbox('Report', reports,
+                                       placeholder='-- select --',
+                                       index=None) if reports else None
+            if not reports:
+                st.info('No reports yet. Upload a file in the Sanitize tab.')
+        else:
+            report_name = st.text_input('Report name',
+                                        placeholder='e.g. BC_BIMIO_267_Daily')
+            if report_name:
+                report_name = report_name.strip()
+
+        st.divider()
+
+        # Step status
+        if report_name:
+            status = _step_status(report_name)
+            st.subheader('Progress')
+            STEP_LABELS = {
+                1: 'Sanitize',
+                2: 'ADF Templates',
+                3: 'Config Setup',
+                4: 'Deploy Scripts',
+                5: 'Blob Upload',
+            }
+            for step, label in STEP_LABELS.items():
+                done = status.get(step, False)
+                icon = '✅' if done else '⭕'
+                st.markdown(f'{icon} **Step {step}** — {label}')
+        else:
+            st.info('Select or enter a report name above.')
+
+    else:  # Batch Run
+        st.subheader('Batch Selection')
+        all_files = _input_files()
+        total = len(all_files)
+
+        if total == 0:
+            st.warning('No files in input/ yet.')
+        else:
+            st.caption(f'{total} file(s) found in input/')
+
+            # Quick-select buttons
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                if st.button('First 10', use_container_width=True):
+                    st.session_state['batch_files'] = all_files[:10]
+            with bc2:
+                if st.button(f'All ({total})', use_container_width=True):
+                    st.session_state['batch_files'] = all_files
+
+            # Manual multi-select
+            selected = st.multiselect(
+                'Or pick individual files',
+                all_files,
+                default=st.session_state.get('batch_files', []),
+                key='batch_multiselect',
+            )
+            st.session_state['batch_files'] = selected
+            st.caption(f'{len(selected)} file(s) selected')
+
+        st.divider()
+        if 'batch_results' in st.session_state:
+            results = st.session_state['batch_results']
+            done_count = sum(1 for r in results if all(
+                r.get(f't{i}', False) for i in range(1, 6)))
+            st.metric('Completed', f'{done_count} / {len(results)}')
 
     st.divider()
     st.caption('All tools run locally. No Azure connections made.')
@@ -189,12 +235,190 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.title('🔧 Toad Migration Toolset')
-if report_name:
-    st.caption(f'Working on: **{report_name}**')
+if run_mode == 'Single Report':
+    if report_name:
+        st.caption(f'Working on: **{report_name}**')
+    else:
+        st.caption('Select a report in the sidebar to begin.')
 else:
-    st.caption('Select a report in the sidebar to begin.')
+    n_sel = len(st.session_state.get('batch_files', []))
+    st.caption(f'Batch mode — {n_sel} file(s) selected')
 
 st.divider()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BATCH MODE
+# ─────────────────────────────────────────────────────────────────────────────
+
+if run_mode == 'Batch Run':
+    st.subheader('Batch Run')
+
+    batch_files = st.session_state.get('batch_files', [])
+
+    if not batch_files:
+        st.info('Select files to process using the sidebar buttons (First 10 / All) '
+                'or the multiselect picker.')
+    else:
+        st.markdown(f'**{len(batch_files)} file(s) queued:**')
+        with st.expander('Show selected files', expanded=False):
+            for f in batch_files:
+                st.text(f'  {f}')
+
+        st.divider()
+
+        # Tool selection
+        st.markdown('**Select tools to run for each report:**')
+        bc1, bc2, bc3, bc4, bc5 = st.columns(5)
+        with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',      value=True,  key='b_t1')
+        with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates', value=True,  key='b_t2')
+        with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',  value=True,  key='b_t3')
+        with bc4: run_t4 = st.checkbox('Tool 4\nDeploy Scripts',value=False, key='b_t4')
+        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',   value=False, key='b_t5')
+
+        # Options row
+        oc1, oc2, oc3 = st.columns([1, 1, 2])
+        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)', key='b_poc')
+        with oc2: batch_verb = st.checkbox('Verbose output',    key='b_verb')
+        with oc3: batch_rg   = st.text_input('Resource Group (Tool 4)',
+                                             placeholder='<your-resource-group>',
+                                             key='b_rg')
+
+        st.divider()
+
+        if st.button('▶  Run Batch', type='primary', key='btn_batch'):
+            from tool1_sanitize import sanitize_file
+            from utils.mapping_registry import MappingRegistry
+            from tool2_adf_generator import generate_adf
+            from tool3_config_setup import generate_config
+            from tool4_adf_deploy import generate_deploy
+            from tool5_blob_upload import generate_upload
+
+            registry_path = os.path.join(GLOBAL_DIR, 'mapping_registry.csv')
+            registry = MappingRegistry(registry_path)
+            rg = batch_rg.strip() or '<your-resource-group>'
+
+            results = []
+            progress_bar = st.progress(0, text='Starting...')
+            status_box   = st.empty()
+
+            for idx, fname in enumerate(batch_files):
+                xml_path = os.path.join(INPUT_DIR, fname)
+                row = {'file': fname, 'report_name': '', 't1': None, 't2': None,
+                       't3': None, 't4': None, 't5': None, 'errors': []}
+
+                pct  = (idx) / len(batch_files)
+                progress_bar.progress(pct, text=f'Processing {idx+1}/{len(batch_files)}: {fname}')
+                status_box.info(f'Processing: **{fname}**')
+
+                # Tool 1 — always run if selected (provides report_name)
+                if run_t1:
+                    ok, out = _capture(sanitize_file, xml_path, registry, batch_verb)
+                    registry.save()
+                    row['t1'] = ok
+                    if not ok:
+                        row['errors'].append(f'Tool 1: {out.splitlines()[-1] if out.strip() else "failed"}')
+                    else:
+                        # Extract report_name from output line
+                        for line in out.splitlines():
+                            if 'Sanitized' in line and ':' in line:
+                                path_part = line.split(':', 1)[1].strip()
+                                rn = os.path.basename(os.path.dirname(path_part))
+                                if rn:
+                                    row['report_name'] = rn
+                                break
+                        # Fallback: derive from filename
+                        if not row['report_name']:
+                            row['report_name'] = os.path.splitext(fname)[0]
+                else:
+                    # Derive report_name from filename as fallback
+                    row['report_name'] = os.path.splitext(fname)[0]
+
+                rn = row['report_name']
+
+                # Tools 2-5 need a report_name
+                if rn:
+                    if run_t2:
+                        ok, out = _capture(generate_adf, rn, batch_verb)
+                        row['t2'] = ok
+                        if not ok:
+                            row['errors'].append(f'Tool 2: {out.splitlines()[-1] if out.strip() else "failed"}')
+
+                    if run_t3:
+                        ok, out = _capture(generate_config, rn, batch_verb, batch_poc)
+                        row['t3'] = ok
+                        if not ok:
+                            row['errors'].append(f'Tool 3: {out.splitlines()[-1] if out.strip() else "failed"}')
+
+                    if run_t4:
+                        ok, out = _capture(generate_deploy, rn, rg, batch_verb)
+                        row['t4'] = ok
+                        if not ok:
+                            row['errors'].append(f'Tool 4: {out.splitlines()[-1] if out.strip() else "failed"}')
+
+                    if run_t5:
+                        ok, out = _capture(generate_upload, rn, batch_verb)
+                        row['t5'] = ok
+                        if not ok:
+                            row['errors'].append(f'Tool 5: {out.splitlines()[-1] if out.strip() else "failed"}')
+
+                results.append(row)
+
+            progress_bar.progress(1.0, text='Done!')
+            status_box.empty()
+            st.session_state['batch_results'] = results
+            st.rerun()
+
+        # Show results table
+        if 'batch_results' in st.session_state:
+            results = st.session_state['batch_results']
+            st.divider()
+            st.subheader('Results')
+
+            def _cell(val):
+                if val is True:  return '✅'
+                if val is False: return '❌'
+                return '—'
+
+            import pandas as pd
+            rows = []
+            for r in results:
+                rows.append({
+                    'File':         r['file'],
+                    'Report Name':  r['report_name'] or '(unknown)',
+                    'Tool 1':       _cell(r['t1']),
+                    'Tool 2':       _cell(r['t2']),
+                    'Tool 3':       _cell(r['t3']),
+                    'Tool 4':       _cell(r['t4']),
+                    'Tool 5':       _cell(r['t5']),
+                    'Errors':       ' | '.join(r['errors']) if r['errors'] else '',
+                })
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # Summary metrics
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                total = len(results)
+                st.metric('Total files', total)
+            with mc2:
+                ok_count = sum(1 for r in results
+                               if all(r.get(f't{i}') is not False
+                                      for i in range(1, 6)))
+                st.metric('All steps OK', ok_count)
+            with mc3:
+                err_count = sum(1 for r in results if r['errors'])
+                st.metric('With errors', err_count)
+
+            if st.button('Clear results', key='btn_clear_batch'):
+                del st.session_state['batch_results']
+                st.rerun()
+
+    # Stop here — don't show single-report tabs in batch mode
+    st.stop()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SINGLE REPORT — Tabs
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Tabs
 tabs = st.tabs([
