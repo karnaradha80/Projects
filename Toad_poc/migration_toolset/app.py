@@ -33,25 +33,291 @@ st.set_page_config(
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .step-badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-        margin-right: 6px;
+    /* ── nxzen brand colours ──────────────────────────────────────────────────
+       Green accent : #5EE340
+       Dark navy    : #0D1B2A
+       Mid navy     : #14293F
+       Light navy   : #1E3A5F
+       Off-white bg : #F5F7FA
+       Border grey  : #DDE3EC
+    ───────────────────────────────────────────────────────────────────────── */
+
+    /* ── Global font ─────────────────────────────────────────────────────── */
+    html, body, [class*="css"] {
+        font-family: 'Inter', 'Segoe UI', sans-serif;
     }
-    .badge-done  { background:#d4edda; color:#155724; }
-    .badge-todo  { background:#f8d7da; color:#721c24; }
-    .badge-warn  { background:#fff3cd; color:#856404; }
-    .output-box  {
-        background:#1e1e1e; color:#d4d4d4;
-        font-family: monospace; font-size: 13px;
-        padding: 14px; border-radius: 6px;
-        white-space: pre-wrap; max-height: 380px;
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    [data-testid="stSidebar"] {
+        background-color: #0D1B2A !important;
+        border-right: 3px solid #5EE340;
+    }
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div {
+        color: #C8D6E5 !important;
+    }
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: #FFFFFF !important;
+    }
+    [data-testid="stSidebar"] .stCaption,
+    [data-testid="stSidebar"] small {
+        color: #7A9BBF !important;
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: #1E3A5F !important;
+    }
+    /* Sidebar radio + selectbox */
+    [data-testid="stSidebar"] [data-testid="stRadio"] label,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] label {
+        color: #C8D6E5 !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background-color: #14293F !important;
+        border-color: #1E3A5F !important;
+        color: #FFFFFF !important;
+    }
+    [data-testid="stSidebar"] input {
+        background-color: #14293F !important;
+        color: #FFFFFF !important;
+        border-color: #1E3A5F !important;
+    }
+    /* Sidebar metric */
+    [data-testid="stSidebar"] [data-testid="metric-container"] {
+        background: #14293F;
+        border-left: 3px solid #5EE340;
+        border-radius: 6px;
+        padding: 8px 12px;
+    }
+    [data-testid="stSidebar"] [data-testid="metric-container"] [data-testid="stMetricValue"] {
+        color: #5EE340 !important;
+    }
+
+    /* ── Main area background ─────────────────────────────────────────────── */
+    .main .block-container {
+        background-color: #FFFFFF;
+        padding-top: 1.5rem;
+    }
+
+    /* ── Page title ──────────────────────────────────────────────────────── */
+    h1 { color: #0D1B2A !important; font-weight: 800 !important; }
+    h2 { color: #14293F !important; font-weight: 700 !important; }
+    h3 { color: #1E3A5F !important; font-weight: 600 !important; }
+
+    /* ── Divider ─────────────────────────────────────────────────────────── */
+    hr { border-color: #DDE3EC !important; }
+
+    /* ── Primary buttons (green) ─────────────────────────────────────────── */
+    .stButton > button[kind="primary"] {
+        background-color: #5EE340 !important;
+        color: #0D1B2A !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        padding: 10px 24px !important;
+        transition: background 0.2s ease !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #4CC832 !important;
+        color: #0D1B2A !important;
+    }
+    /* Secondary buttons */
+    .stButton > button[kind="secondary"] {
+        background-color: #FFFFFF !important;
+        color: #0D1B2A !important;
+        border: 1.5px solid #0D1B2A !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background-color: #F5F7FA !important;
+        border-color: #5EE340 !important;
+        color: #0D1B2A !important;
+    }
+    /* All other buttons (use_container_width, etc.) */
+    .stButton > button:not([kind]) {
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        border: 1.5px solid #DDE3EC !important;
+    }
+    .stButton > button:not([kind]):hover {
+        border-color: #5EE340 !important;
+        color: #0D1B2A !important;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────────────── */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #F5F7FA;
+        border-radius: 8px 8px 0 0;
+        gap: 4px;
+        padding: 4px 4px 0 4px;
+        border-bottom: 2px solid #DDE3EC;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px 6px 0 0;
+        font-weight: 600;
+        font-size: 13px;
+        color: #4A6278;
+        padding: 8px 16px;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #FFFFFF;
+        color: #0D1B2A !important;
+        border-bottom: 3px solid #5EE340 !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #0D1B2A !important;
+        background-color: #EDF0F5;
+    }
+
+    /* ── Metrics ─────────────────────────────────────────────────────────── */
+    [data-testid="metric-container"] {
+        background: #F5F7FA;
+        border: 1px solid #DDE3EC;
+        border-left: 4px solid #5EE340;
+        border-radius: 8px;
+        padding: 16px !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #0D1B2A !important;
+        font-weight: 800 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #4A6278 !important;
+        font-size: 13px !important;
+    }
+
+    /* ── Success / info / warning / error alerts ─────────────────────────── */
+    [data-testid="stAlert"][kind="success"] {
+        background-color: #EDFAE7;
+        border-left: 4px solid #5EE340;
+        color: #1A4D10;
+        border-radius: 6px;
+    }
+    [data-testid="stAlert"][kind="info"] {
+        background-color: #EBF4FF;
+        border-left: 4px solid #1E3A5F;
+        border-radius: 6px;
+    }
+    [data-testid="stAlert"][kind="warning"] {
+        background-color: #FFF8E1;
+        border-left: 4px solid #F9A825;
+        border-radius: 6px;
+    }
+    [data-testid="stAlert"][kind="error"] {
+        background-color: #FDECEA;
+        border-left: 4px solid #C62828;
+        border-radius: 6px;
+    }
+
+    /* ── Expanders ───────────────────────────────────────────────────────── */
+    [data-testid="stExpander"] {
+        border: 1px solid #DDE3EC !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stExpander"] summary {
+        font-weight: 600;
+        color: #14293F;
+    }
+    [data-testid="stExpander"] summary:hover {
+        color: #5EE340;
+    }
+
+    /* ── Dataframe ───────────────────────────────────────────────────────── */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #DDE3EC;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    /* ── File uploader ───────────────────────────────────────────────────── */
+    [data-testid="stFileUploader"] {
+        border: 2px dashed #DDE3EC;
+        border-radius: 8px;
+        padding: 8px;
+    }
+    [data-testid="stFileUploader"]:hover {
+        border-color: #5EE340;
+    }
+
+    /* ── Number input ────────────────────────────────────────────────────── */
+    input[type="number"], input[type="text"] {
+        border-radius: 6px !important;
+    }
+    input[type="number"]:focus, input[type="text"]:focus {
+        border-color: #5EE340 !important;
+        box-shadow: 0 0 0 2px rgba(94,227,64,0.2) !important;
+    }
+
+    /* ── Progress bar ────────────────────────────────────────────────────── */
+    [data-testid="stProgressBar"] > div > div {
+        background-color: #5EE340 !important;
+    }
+
+    /* ── Spinner ─────────────────────────────────────────────────────────── */
+    [data-testid="stSpinner"] > div {
+        border-top-color: #5EE340 !important;
+    }
+
+    /* ── Download button ─────────────────────────────────────────────────── */
+    [data-testid="stDownloadButton"] > button {
+        background-color: #0D1B2A !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stDownloadButton"] > button:hover {
+        background-color: #1E3A5F !important;
+    }
+
+    /* ── Custom components ───────────────────────────────────────────────── */
+    .output-box {
+        background: #0D1B2A;
+        color: #C8D6E5;
+        font-family: 'Courier New', monospace;
+        font-size: 12.5px;
+        padding: 16px;
+        border-radius: 8px;
+        border-left: 4px solid #5EE340;
+        white-space: pre-wrap;
+        max-height: 380px;
         overflow-y: auto;
     }
-    .section-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .section-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #14293F;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .step-badge {
+        display: inline-block;
+        padding: 3px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        margin-right: 6px;
+        letter-spacing: 0.3px;
+    }
+    .badge-done { background: #EDFAE7; color: #1A6610; border: 1px solid #5EE340; }
+    .badge-todo { background: #FDECEA; color: #C62828; border: 1px solid #EF9A9A; }
+    .badge-warn { background: #FFF8E1; color: #856404; border: 1px solid #F9A825; }
+
+    /* ── Checkbox accent ─────────────────────────────────────────────────── */
+    [data-testid="stCheckbox"] svg { color: #5EE340 !important; }
+
+    /* ── Multiselect tags ────────────────────────────────────────────────── */
+    [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+        background-color: #0D1B2A !important;
+        color: #FFFFFF !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
