@@ -131,6 +131,14 @@ ROWS = [
 
     ('',   'UTILITY',    'migration_toolset\\tools\\utils\\mapping_registry.py',
      'MappingRegistry: loads/saves global CSV, generates consistent mock replacements across all reports'),
+
+    # ── STREAMLIT UI ──────────────────────────────────────────────────────────
+    ('UI',  'UI',        'migration_toolset\\app.py',
+     'Streamlit web UI: run all 5 tools from a browser without using the command line. '
+     'Run: streamlit run app.py  (from migration_toolset\\ directory)'),
+
+    ('',    'UI',        'http://localhost:8501',
+     'Browser address once app.py is running. Streamlit auto-opens on first launch.'),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +153,7 @@ COL_INPUT    = 'FFF2CC'   # light yellow
 COL_GLOBAL   = 'F2F2F2'   # light grey
 COL_ROOT     = 'D9D9D9'   # grey
 COL_UTILITY  = 'EDE7F6'   # light purple
+COL_UI       = 'FCE4EC'   # light pink
 
 CATEGORY_FILL = {
     'TOOL':    COL_TOOL,
@@ -153,6 +162,7 @@ CATEGORY_FILL = {
     'GLOBAL':  COL_GLOBAL,
     'ROOT':    COL_ROOT,
     'UTILITY': COL_UTILITY,
+    'UI':      COL_UI,
 }
 
 def _fill(hex_color):
@@ -238,6 +248,7 @@ legend_rows = [
     (COL_GLOBAL,  'GLOBAL',   'Shared files used across all reports'),
     (COL_ROOT,    'ROOT',     'Root folder'),
     (COL_UTILITY, 'UTILITY',  'Shared utility modules (used by tools internally)'),
+    (COL_UI,      'UI',       'Streamlit web UI — browser-based interface for all tools'),
 ]
 
 for r, (color, label, meaning) in enumerate(legend_rows, start=2):
@@ -252,6 +263,157 @@ for r, (color, label, meaning) in enumerate(legend_rows, start=2):
     cb.alignment = Alignment(vertical='center')
     cb.border    = _border()
     wl.row_dimensions[r].height = 22
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Streamlit UI sheet
+# ─────────────────────────────────────────────────────────────────────────────
+
+wu = wb.create_sheet('Streamlit UI')
+wu.column_dimensions['A'].width = 22
+wu.column_dimensions['B'].width = 30
+wu.column_dimensions['C'].width = 65
+
+# Header
+for col, title in enumerate(['Section', 'Feature / Tab', 'Description'], start=1):
+    cell = wu.cell(row=1, column=col, value=title)
+    cell.font      = Font(bold=True, color='FFFFFF', size=12)
+    cell.fill      = _fill(COL_HEADER)
+    cell.alignment = Alignment(horizontal='center', vertical='center')
+    cell.border    = _border()
+wu.row_dimensions[1].height = 24
+
+UI_ROWS = [
+    # ── How to run ───────────────────────────────────────────────────────────
+    ('HOW TO RUN',   'Start the app',
+     'cd migration_toolset\\   then:   streamlit run app.py'),
+    ('',             'Browser address',
+     'http://localhost:8501  (auto-opens on first launch)'),
+    ('',             'Stop the app',
+     'Press Ctrl+C in the terminal where streamlit is running'),
+
+    # ── Sidebar ──────────────────────────────────────────────────────────────
+    ('SIDEBAR',      'Run Mode toggle',
+     'Switch between Single Report (one report at a time) and Batch Run (multiple files)'),
+    ('',             'Single — Choose existing',
+     'Dropdown of all folders already in reports\\ — select to set active report'),
+    ('',             'Single — Enter name',
+     'Type a new report name manually (used before Tool 1 creates the folder)'),
+    ('',             'Single — Progress',
+     'Live step indicators: Step 1-5 shown as Done (green) or Pending (red) based on output files'),
+    ('',             'Batch — Select first N',
+     'Number input: type any count 1 to total, click Select to queue first N files from input\\'),
+    ('',             'Batch — Select All',
+     'One click to queue every file in input\\'),
+    ('',             'Batch — Multiselect',
+     'Manually add or remove individual files from the queue'),
+
+    # ── Single Report tabs ────────────────────────────────────────────────────
+    ('SINGLE REPORT\nTab 1 — Sanitize',
+     'Upload file',
+     'Upload a new Toad XML file (.txt or .xml) — saved automatically to input\\'),
+    ('',             'Select existing',
+     'Pick a file already in input\\ from a dropdown'),
+    ('',             'Run Sanitize',
+     'Calls Tool 1: replaces all sensitive values, writes sanitized XML + mapping CSV'),
+    ('',             'Output',
+     'Shows Tool 1 console output; mapping table (real → mock); download buttons for sanitized XML + mapping CSV'),
+
+    ('SINGLE REPORT\nTab 2 — ADF Templates',
+     'Prerequisite check',
+     'Warns if sanitized XML is missing — must run Tab 1 first'),
+    ('',             'Run Generate',
+     'Calls Tool 2: generates Linked Services, Datasets, Pipeline JSON, ARM template'),
+    ('',             'Output',
+     'Console output; expandable list of all generated JSON files; download arm_template.json + parameters.json'),
+
+    ('SINGLE REPORT\nTab 3 — Config Setup',
+     'POC mode toggle',
+     'Uses dev team emails from poc_team_config.json instead of mock emailid@company.com addresses'),
+    ('',             'Run Generate',
+     'Calls Tool 3: generates config schema DDL + per-report INSERT SQL (report, emails, SQL queries, template)'),
+    ('',             'Output',
+     'Console output; SQL preview expanders; download config_data.sql + config_schema_ddl.sql'),
+
+    ('SINGLE REPORT\nTab 4 — Deploy Scripts',
+     'Resource Group input',
+     'Optional: enter Azure resource group name — defaults to <your-resource-group> placeholder'),
+    ('',             'Run Generate',
+     'Calls Tool 4: splits ARM template into bootstrap + per-report; generates PS1 + bash scripts'),
+    ('',             'Output',
+     'Console output; deployment checklist expander (OK/!! per parameter); download 4 scripts'),
+
+    ('SINGLE REPORT\nTab 5 — Blob Upload',
+     'Upload .xlsm template',
+     'Upload the Excel report template — saved to global\\xlsm_templates\\{report}\\'),
+    ('',             'Run Generate',
+     'Calls Tool 5: detects template filename from XML, generates PS1 + bash upload scripts'),
+    ('',             'Output',
+     'Console output; blob checklist expander; download upload PS1 + SH scripts'),
+
+    ('SINGLE REPORT\nTab 6 — POC Tools',
+     'Tool 1.01 — Mock Data',
+     'Set row count (100–10000), run generator, preview any table as a dataframe (POC only)'),
+    ('',             'Tool 1.02 — DDL',
+     'Run DDL generator (requires mock data), preview SQL in expander, download DDL file (POC only)'),
+
+    # ── Batch Run ─────────────────────────────────────────────────────────────
+    ('BATCH RUN',    'Tool checkboxes',
+     'Choose which tools to run per report: T1+T2+T3 ticked by default, T4+T5 unticked'),
+    ('',             'Options',
+     'POC mode (Tool 3), Verbose output, Resource Group name (Tool 4)'),
+    ('',             'Run Batch button',
+     'Processes each selected file in order — runs chosen tools sequentially per report'),
+    ('',             'Progress bar',
+     'Updates file-by-file showing current file name and count (e.g. Processing 3/10)'),
+    ('',             'Results table',
+     'One row per file: File, Report Name, T1-T5 status (green tick / red cross / dash if skipped)'),
+    ('',             'Summary metrics',
+     'Total files processed / All steps OK count / Files with errors count'),
+    ('',             'Clear results',
+     'Resets the results table so you can run again'),
+]
+
+COL_SECTION  = 'C5E1F5'   # light sky
+COL_BLANK    = 'FFFFFF'
+COL_HOW      = 'E8F5E9'   # light green
+COL_SINGLE   = 'FFF8E1'   # light amber
+COL_BATCH    = 'FCE4EC'   # light pink
+
+def _ui_bg(section):
+    if section == 'HOW TO RUN':   return COL_HOW
+    if section.startswith('SINGLE'): return COL_SINGLE
+    if section == 'BATCH RUN':    return COL_BATCH
+    if section == 'SIDEBAR':      return COL_SECTION
+    return COL_BLANK
+
+current_section = ''
+for i, (section, feature, desc) in enumerate(UI_ROWS, start=2):
+    if section:
+        current_section = section
+    bg = _ui_bg(current_section)
+
+    ca = wu.cell(row=i, column=1, value=section)
+    ca.font      = Font(bold=bool(section), size=10,
+                        color='1F4E79' if section else '595959')
+    ca.fill      = _fill(bg)
+    ca.alignment = Alignment(vertical='center', wrap_text=True)
+    ca.border    = _border()
+
+    cb = wu.cell(row=i, column=2, value=feature)
+    cb.font      = Font(bold=True, size=10)
+    cb.fill      = _fill(bg)
+    cb.alignment = Alignment(vertical='center', wrap_text=True)
+    cb.border    = _border()
+
+    cc = wu.cell(row=i, column=3, value=desc)
+    cc.font      = Font(size=10)
+    cc.fill      = _fill(bg)
+    cc.alignment = Alignment(vertical='center', wrap_text=True)
+    cc.border    = _border()
+
+    wu.row_dimensions[i].height = 32 if '\n' in section else 26
+
+wu.freeze_panes = 'A2'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Save
