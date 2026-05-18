@@ -139,6 +139,9 @@ def _badge(done):
 # ─────────────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
+    logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=140)
     st.title('🔧 Migration Toolset')
     st.caption('Toad → Azure Data Factory')
     st.divider()
@@ -241,7 +244,14 @@ with st.sidebar:
 # Main header
 # ─────────────────────────────────────────────────────────────────────────────
 
-st.title('🔧 Toad Migration Toolset')
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=80)
+with col_title:
+    st.title('🔧 Toad Migration Toolset')
+
 if run_mode == 'Single Report':
     if report_name:
         st.caption(f'Working on: **{report_name}**')
