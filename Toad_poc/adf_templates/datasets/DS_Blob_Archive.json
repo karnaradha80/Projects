@@ -1,0 +1,33 @@
+{
+    "name": "DS_Blob_Archive",
+    "type": "Microsoft.DataFactory/factories/datasets",
+    "properties": {
+        "description": "Azure Blob Storage — archive folder for sent daily reports with date suffix",
+        "linkedServiceName": {
+            "referenceName": "LS_AzureBlobStorage",
+            "type": "LinkedServiceReference"
+        },
+        "parameters": {
+            "archive_file_name": { "type": "string" }
+        },
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "container":  "bimio-reports",
+                "folderPath": "BIMIO267/archive",
+                "fileName": {
+                    "value": "@dataset().archive_file_name",
+                    "type": "Expression"
+                }
+            },
+            "columnDelimiter":  ",",
+            "rowDelimiter":     "\n",
+            "firstRowAsHeader": true,
+            "quoteChar":        "\"",
+            "escapeChar":       "\\"
+        },
+        "schema": [],
+        "annotations": []
+    }
+}

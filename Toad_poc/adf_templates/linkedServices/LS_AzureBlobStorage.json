@@ -1,0 +1,17 @@
+{
+    "name": "LS_AzureBlobStorage",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure Blob Storage — stores generated Excel report files",
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "serviceEndpoint": "https://$(storage_account_name).blob.core.windows.net/",
+            "accountKind": "StorageV2",
+            "credential": {
+                "referenceName": "ADF_ManagedIdentity",
+                "type": "CredentialReference"
+            }
+        },
+        "annotations": []
+    }
+}

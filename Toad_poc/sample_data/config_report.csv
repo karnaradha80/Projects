@@ -1,0 +1,2 @@
+report_id,report_name,description,schedule,output_format,is_active
+1,BC_BIMIO_267_Daily,BIMIO 267 - 12 Hour Prevented Daily (MTD YTD),Daily,CSV,Y

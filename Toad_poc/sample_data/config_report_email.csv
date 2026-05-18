@@ -1,0 +1,14 @@
+id,report_id,email_address,email_type,recipient_group,is_active
+1,1,ops.depot_a@abc.co.uk,TO,OPERATIONS,Y
+2,1,ops.depot_b@abc.co.uk,TO,OPERATIONS,Y
+3,1,ops.depot_c@abc.co.uk,TO,OPERATIONS,Y
+4,1,ops.depot_d@abc.co.uk,TO,OPERATIONS,Y
+5,1,ops.depot_e@abc.co.uk,TO,OPERATIONS,Y
+6,1,ops.depot_f@abc.co.uk,TO,OPERATIONS,Y
+7,1,ops.depot_g@abc.co.uk,TO,OPERATIONS,Y
+8,1,ops.depot_h@abc.co.uk,TO,OPERATIONS,Y
+9,1,ops.depot_i@abc.co.uk,TO,OPERATIONS,Y
+10,1,buin@abc.co.uk,BCC,BI_TEAM,Y
+11,1,bi.support@abc.co.uk,BCC,BI_TEAM,Y
+12,1,manager.name1@abc.co.uk,CC,ALERT_ONLY,Y
+13,1,manager.name2@abc.co.uk,CC,ALERT_ONLY,Y

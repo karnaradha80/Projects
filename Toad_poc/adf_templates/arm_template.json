@@ -1,0 +1,345 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+
+    "parameters": {
+        "factoryName":          { "type": "string",  "metadata": { "description": "ADF instance name" } },
+        "location":             { "type": "string",  "defaultValue": "uksouth" },
+        "storage_account_name": { "type": "string",  "metadata": { "description": "Azure Blob Storage account name" } },
+        "azure_sql_server":     { "type": "string",  "metadata": { "description": "Azure SQL Server hostname (without .database.windows.net)" } },
+        "azure_sql_db":         { "type": "string",  "metadata": { "description": "Azure SQL Database name" } },
+        "key_vault_name":       { "type": "string",  "metadata": { "description": "Azure Key Vault name for secrets" } },
+        "oracle_host":          { "type": "string",  "defaultValue": "ORACLE_SERVER" },
+        "oracle_sid":           { "type": "string",  "defaultValue": "ORACLE_SCHEMA" },
+        "oracle_user":          { "type": "string",  "defaultValue": "ORACLE_SCHEMA" },
+        "logic_app_email_url":  { "type": "string",  "metadata": { "description": "Logic App HTTP trigger URL for email notifications" } }
+    },
+
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+
+    "resources": [
+
+        {
+            "type": "Microsoft.DataFactory/factories",
+            "apiVersion": "2018-06-01",
+            "name": "[parameters('factoryName')]",
+            "location": "[parameters('location')]",
+            "identity": { "type": "SystemAssigned" },
+            "properties": {}
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureKeyVault')]",
+            "dependsOn": [ "[variables('factoryId')]" ],
+            "properties": {
+                "description": "Azure Key Vault — stores all connection secrets",
+                "type": "AzureKeyVault",
+                "typeProperties": {
+                    "baseUrl": "[concat('https://', parameters('key_vault_name'), '.vault.azure.net/')]"
+                }
+            }
+        },
+
+
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureSQL_Target')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureKeyVault')]"
+            ],
+            "properties": {
+                "description": "Azure SQL Server — migrated report data target",
+                "type": "AzureSqlDatabase",
+                "typeProperties": {
+                    "connectionString": "[concat('Server=tcp:', parameters('azure_sql_server'), '.database.windows.net,1433;Database=', parameters('azure_sql_db'), ';Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]",
+                    "password": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": { "referenceName": "LS_AzureKeyVault", "type": "LinkedServiceReference" },
+                        "secretName": "azuresql-db-password"
+                    }
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureBlobStorage')]",
+            "dependsOn": [ "[variables('factoryId')]" ],
+            "properties": {
+                "description": "Azure Blob Storage — report output and archive",
+                "type": "AzureBlobStorage",
+                "typeProperties": {
+                    "serviceEndpoint": "[concat('https://', parameters('storage_account_name'), '.blob.core.windows.net/')]",
+                    "accountKind": "StorageV2"
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_AzureSQL_ODS_Log')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureSQL_Target')]"
+            ],
+            "properties": {
+                "description": "Azure SQL MAXRPD.T_ODS_LOG — simulates Oracle ODS refresh check for POC",
+                "linkedServiceName": { "referenceName": "LS_AzureSQL_Target", "type": "LinkedServiceReference" },
+                "type": "AzureSqlTable",
+                "typeProperties": { "schema": "MAXRPD", "table": "T_ODS_LOG" }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_AzureSQL_GasEscapes')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureSQL_Target')]"
+            ],
+            "properties": {
+                "description": "Azure SQL — gas escapes fact table (query defined in pipeline activity)",
+                "linkedServiceName": { "referenceName": "LS_AzureSQL_Target", "type": "LinkedServiceReference" },
+                "type": "AzureSqlTable",
+                "typeProperties": { "schema": "abcbimart", "table": "fct_gas_escapes_v" }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_Blob_Excel_Output')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureBlobStorage')]"
+            ],
+            "properties": {
+                "description": "Blob Storage — report output (CSV)",
+                "linkedServiceName": { "referenceName": "LS_AzureBlobStorage", "type": "LinkedServiceReference" },
+                "parameters": { "file_name": { "type": "string" } },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobStorageLocation",
+                        "container": "toad-poc-reports",
+                        "folderPath": "output",
+                        "fileName": { "value": "@dataset().file_name", "type": "Expression" }
+                    },
+                    "columnDelimiter": ",",
+                    "firstRowAsHeader": true,
+                    "quoteChar": "\""
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_Blob_Archive')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureBlobStorage')]"
+            ],
+            "properties": {
+                "description": "Blob Storage — archive of sent daily reports",
+                "linkedServiceName": { "referenceName": "LS_AzureBlobStorage", "type": "LinkedServiceReference" },
+                "parameters": { "archive_file_name": { "type": "string" } },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobStorageLocation",
+                        "container": "toad-poc-reports",
+                        "folderPath": "archive",
+                        "fileName": { "value": "@dataset().archive_file_name", "type": "Expression" }
+                    },
+                    "columnDelimiter": ",",
+                    "firstRowAsHeader": true,
+                    "quoteChar": "\""
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/PL_Toad_POC')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/datasets/DS_AzureSQL_ODS_Log')]",
+                "[concat(variables('factoryId'), '/datasets/DS_AzureSQL_GasEscapes')]",
+                "[concat(variables('factoryId'), '/datasets/DS_Blob_Excel_Output')]",
+                "[concat(variables('factoryId'), '/datasets/DS_Blob_Archive')]"
+            ],
+            "properties": {
+                "description": "Toad POC pipeline — migrated from Toad automation script",
+                "parameters": {
+                    "logic_app_email_url": { "type": "string", "defaultValue": "[parameters('logic_app_email_url')]" }
+                },
+                "variables": {
+                    "report_date": { "type": "String" }
+                },
+                "activities": [
+                    {
+                        "name": "Lookup_ODS_Refresh_Check",
+                        "type": "Lookup",
+                        "policy": { "timeout": "0.00:05:00", "retry": 1, "retryIntervalInSeconds": 30 },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": "SELECT COUNT(*) AS row_count FROM MAXRPD.T_ODS_LOG WHERE CAST(ems AS DATE) = CAST(GETDATE() AS DATE)",
+                                "queryTimeout": "00:05:00"
+                            },
+                            "dataset": { "referenceName": "DS_AzureSQL_ODS_Log", "type": "DatasetReference" },
+                            "firstRowOnly": true
+                        }
+                    },
+                    {
+                        "name": "SetVar_ReportDate",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            { "activity": "Lookup_ODS_Refresh_Check", "dependencyConditions": ["Succeeded"] }
+                        ],
+                        "typeProperties": {
+                            "variableName": "report_date",
+                            "value": { "value": "@formatDateTime(addDays(utcNow(), -1), 'dd.MM.yyyy')", "type": "Expression" }
+                        }
+                    },
+                    {
+                        "name": "If_ODS_Refreshed",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            { "activity": "SetVar_ReportDate", "dependencyConditions": ["Succeeded"] }
+                        ],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@greater(activity('Lookup_ODS_Refresh_Check').output.firstRow.ROW_COUNT, 0)",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "Email_ODS_Not_Refreshed",
+                                    "type": "WebActivity",
+                                    "typeProperties": {
+                                        "url": { "value": "@pipeline().parameters.logic_app_email_url", "type": "Expression" },
+                                        "method": "POST",
+                                        "headers": { "Content-Type": "application/json" },
+                                        "body": { "value": "@concat('{\"subject\":\"BIMIO 267 - 12 Hour Prevented Daily (MTD, YTD) For_', variables('report_date'), '\",\"to\":\"operations-distribution@abc.co.uk\",\"body\":\"ODS data has not been refreshed today. Report cannot be generated.\"}')", "type": "Expression" }
+                                    }
+                                }
+                            ],
+                            "ifTrueActivities": [
+                                {
+                                    "name": "Copy_ReportData_To_Blob",
+                                    "type": "Copy",
+                                    "policy": { "timeout": "0.01:00:00", "retry": 1, "retryIntervalInSeconds": 30 },
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "AzureSqlSource",
+                                            "sqlReaderQuery": { "value": "SELECT\n    sub.[Network], sub.[LDZ], sub.[Depot],\n    sub.[Work Order], sub.[Root Work Order],\n    sub.[Emergency Date], sub.[Gas Prevented],\n    sub.[Time Difference], sub.[Address],\n    CASE WHEN sub.[Gas Prevented] > DATEFROMPARTS(YEAR(DATEADD(DAY,-1,GETDATE())), MONTH(DATEADD(DAY,-1,GETDATE())), 1) THEN 1 ELSE 0 END AS [MTD],\n    CASE WHEN sub.[Time Difference] <= 12 THEN 1 ELSE 0 END AS [Less 12],\n    CASE WHEN sub.[Time Difference] > 12  THEN 1 ELSE 0 END AS [Great 12],\n    1 AS [Count]\nFROM (\n    SELECT\n        dorg.network AS [Network], dorg.ldz AS [LDZ],\n        CASE WHEN dorg.depot_work_group = 'DEPOT_K' THEN 'DEPOT_L' ELSE dorg.depot_work_group END AS [Depot],\n        prev_dwor.work_order_number AS [Work Order],\n        dwor.work_order_number AS [Root Work Order],\n        dwor.reported_date_time AS [Emergency Date],\n        DATEADD(SECOND, DATEDIFF(SECOND,'00:00:00', CAST(RIGHT(dtim.hour_24_minute,8) AS TIME)), CAST(CONVERT(DATE, dcal.date_disp_1, 103) AS DATETIME2)) AS [Gas Prevented],\n        ROUND(CAST(DATEDIFF(MINUTE, dwor.reported_date_time, DATEADD(SECOND, DATEDIFF(SECOND,'00:00:00', CAST(RIGHT(dtim.hour_24_minute,8) AS TIME)), CAST(CONVERT(DATE, dcal.date_disp_1, 103) AS DATETIME2))) AS FLOAT)/60, 2) AS [Time Difference],\n        dadr.display_address AS [Address]\n    FROM abcbimart.fct_gas_escapes_v ge\n        JOIN abcbimart.dim_work_orders  dwor      ON ge.dwor_id_root               = dwor.id\n        JOIN abcbimart.dim_work_orders  prev_dwor ON ge.dwor_id_gas_prevented      = prev_dwor.id\n        JOIN abcbimart.dim_organisation dorg      ON ge.dorg_id_root               = dorg.id\n        JOIN abcbimart.dim_addresses    dadr      ON ge.dadr_id_root               = dadr.id\n        JOIN abcbimart.dim_calendar     dcal      ON ge.dcal_id_gas_prevented_date = dcal.id\n        JOIN abcbimart.dim_time         dtim      ON ge.dtim_id_gas_prevented_time = dtim.id\n    WHERE ge.latest = 'Y'\n      AND dcal.date_oracle >= DATEADD(MONTH, 3, DATEFROMPARTS(YEAR(DATEADD(MONTH,-3,DATEADD(DAY,-4,GETDATE()))),1,1))\n      AND dcal.date_oracle <  CAST(GETDATE() AS DATE)\n) sub", "type": "Expression" },
+                                            "queryTimeout": "00:30:00"
+                                        },
+                                        "sink": {
+                                            "type": "DelimitedTextSink",
+                                            "storeSettings": { "type": "AzureBlobStorageWriteSettings" },
+                                            "formatSettings": { "type": "DelimitedTextWriteSettings", "quoteAllText": true, "fileExtension": ".csv" }
+                                        },
+                                        "enableStaging": false
+                                    },
+                                    "inputs":  [ { "referenceName": "DS_AzureSQL_GasEscapes", "type": "DatasetReference" } ],
+                                    "outputs": [ { "referenceName": "DS_Blob_Excel_Output", "type": "DatasetReference", "parameters": { "file_name": { "value": "@concat('BC_BIMIO_267_PRECOPY_', variables('report_date'), '.csv')", "type": "Expression" } } } ]
+                                },
+                                {
+                                    "name": "Copy_Archive_File",
+                                    "type": "Copy",
+                                    "dependsOn": [ { "activity": "Copy_ReportData_To_Blob", "dependencyConditions": ["Succeeded"] } ],
+                                    "typeProperties": {
+                                        "source": { "type": "DelimitedTextSource", "storeSettings": { "type": "AzureBlobStorageReadSettings" }, "formatSettings": { "type": "DelimitedTextReadSettings" } },
+                                        "sink":   { "type": "DelimitedTextSink",   "storeSettings": { "type": "AzureBlobStorageWriteSettings" }, "formatSettings": { "type": "DelimitedTextWriteSettings", "quoteAllText": true, "fileExtension": ".csv" } },
+                                        "enableStaging": false
+                                    },
+                                    "inputs":  [ { "referenceName": "DS_Blob_Excel_Output", "type": "DatasetReference", "parameters": { "file_name": { "value": "@concat('BC_BIMIO_267_PRECOPY_', variables('report_date'), '.csv')", "type": "Expression" } } } ],
+                                    "outputs": [ { "referenceName": "DS_Blob_Archive",       "type": "DatasetReference", "parameters": { "archive_file_name": { "value": "@concat('BIMIO267_12Hour_Prevented_Daily_For_', variables('report_date'), '.csv')", "type": "Expression" } } } ]
+                                },
+                                {
+                                    "name": "Email_Report_To_Operations",
+                                    "type": "WebActivity",
+                                    "dependsOn": [ { "activity": "Copy_Archive_File", "dependencyConditions": ["Succeeded"] } ],
+                                    "typeProperties": {
+                                        "url": { "value": "@pipeline().parameters.logic_app_email_url", "type": "Expression" },
+                                        "method": "POST",
+                                        "headers": { "Content-Type": "application/json" },
+                                        "body": { "value": "@concat('{\"subject\":\"BIMIO 267 - 12 Hour Prevented Daily (MTD, YTD) For_', variables('report_date'), '\",\"to\":\"operations-distribution@abc.co.uk\",\"attachment_path\":\"toad-poc-reports/archive/BIMIO267_12Hour_Prevented_Daily_For_', variables('report_date'), '.csv\"}')", "type": "Expression" }
+                                    }
+                                },
+                                {
+                                    "name": "Email_Confirmation_To_BI_Team",
+                                    "type": "WebActivity",
+                                    "dependsOn": [ { "activity": "Email_Report_To_Operations", "dependencyConditions": ["Succeeded"] } ],
+                                    "typeProperties": {
+                                        "url": { "value": "@pipeline().parameters.logic_app_email_url", "type": "Expression" },
+                                        "method": "POST",
+                                        "headers": { "Content-Type": "application/json" },
+                                        "body": { "value": "@concat('{\"subject\":\"BIMIO 267 For_', variables('report_date'), ' - Has Run and Been Emailed\",\"to\":\"buin@abc.co.uk\",\"body\":\"Pipeline completed successfully.\"}')", "type": "Expression" }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+
+        {
+            "type": "Microsoft.DataFactory/factories/triggers",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/TR_Daily_0600')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/pipelines/PL_Toad_POC')]"
+            ],
+            "properties": {
+                "description": "Daily trigger at 06:00 GMT — runs Toad POC pipeline",
+                "runtimeState": "Stopped",
+                "type": "ScheduleTrigger",
+                "typeProperties": {
+                    "recurrence": {
+                        "frequency": "Day",
+                        "interval": 1,
+                        "startTime": "2026-01-01T06:00:00Z",
+                        "timeZone": "GMT Standard Time",
+                        "schedule": { "hours": [6], "minutes": [0] }
+                    }
+                },
+                "pipelines": [
+                    {
+                        "pipelineReference": {
+                            "referenceName": "PL_Toad_POC",
+                            "type": "PipelineReference"
+                        }
+                    }
+                ]
+            }
+        }
+
+    ],
+
+    "outputs": {
+        "factoryName": {
+            "type": "string",
+            "value": "[parameters('factoryName')]"
+        },
+        "factoryPrincipalId": {
+            "type": "string",
+            "value": "[reference(variables('factoryId'), '2018-06-01', 'Full').identity.principalId]"
+        }
+    }
+}

@@ -1,0 +1,84 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "$connections": {
+            "defaultValue": {},
+            "type": "Object"
+        }
+    },
+    "triggers": {
+        "manual": {
+            "type": "Request",
+            "kind": "Http",
+            "inputs": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "subject":         { "type": "string" },
+                        "to":              { "type": "string" },
+                        "cc":              { "type": "string" },
+                        "bcc":             { "type": "string" },
+                        "body":            { "type": "string" },
+                        "attachment_path": { "type": "string" }
+                    },
+                    "required": ["subject", "to"]
+                }
+            }
+        }
+    },
+    "actions": {
+        "Parse_Request": {
+            "type": "ParseJson",
+            "inputs": {
+                "content": "@triggerBody()",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "subject":         { "type": "string" },
+                        "to":              { "type": "string" },
+                        "cc":              { "type": "string" },
+                        "bcc":             { "type": "string" },
+                        "body":            { "type": "string" },
+                        "attachment_path": { "type": "string" }
+                    }
+                }
+            },
+            "runAfter": {}
+        },
+        "Send_Email": {
+            "type": "ApiConnection",
+            "inputs": {
+                "host": {
+                    "connection": {
+                        "name": "@parameters('$connections')['office365']['connectionId']"
+                    }
+                },
+                "method": "post",
+                "path": "/v2/Mail",
+                "body": {
+                    "To":      "@body('Parse_Request')?['to']",
+                    "Cc":      "@body('Parse_Request')?['cc']",
+                    "Bcc":     "@body('Parse_Request')?['bcc']",
+                    "Subject": "@body('Parse_Request')?['subject']",
+                    "Body":    "@if(equals(body('Parse_Request')?['body'], null), body('Parse_Request')?['subject'], body('Parse_Request')?['body'])",
+                    "Importance": "Normal"
+                }
+            },
+            "runAfter": {
+                "Parse_Request": ["Succeeded"]
+            }
+        },
+        "Respond_OK": {
+            "type": "Response",
+            "inputs": {
+                "statusCode": 200,
+                "body": { "status": "email sent" }
+            },
+            "runAfter": {
+                "Send_Email": ["Succeeded"]
+            }
+        }
+    },
+    "outputs": {}
+}

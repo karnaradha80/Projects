@@ -1,0 +1,327 @@
+{
+    "name": "PL_BC_BIMIO_267_Daily",
+    "type": "Microsoft.DataFactory/factories/pipelines",
+    "properties": {
+        "description": "Daily pipeline — BIMIO 267 12 Hour Prevented report. Migrated from Toad Automation Script BC_BIMIO_267_Daily.",
+        "activities": [
+
+            {
+                "name": "Lookup_ODS_Refresh_Check",
+                "description": "Check if today's ODS data load has completed. POC: uses Azure SQL. Production: switch dataset to DS_Oracle_ODS_Log and source type to OracleSource.",
+                "type": "Lookup",
+                "policy": {
+                    "timeout": "0.00:05:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 30
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT COUNT(*) AS row_count FROM MAXRPD.T_ODS_LOG WHERE CAST(ems AS DATE) = CAST(GETDATE() AS DATE)",
+                        "queryTimeout": "00:05:00"
+                    },
+                    "dataset": {
+                        "referenceName": "DS_AzureSQL_ODS_Log",
+                        "type": "DatasetReference"
+                    },
+                    "firstRowOnly": true
+                }
+            },
+
+            {
+                "name": "SetVar_ReportDate",
+                "description": "Set yesterday's date as the report date. Replicates: Set_Variable_1 (VariableActivity).",
+                "type": "SetVariable",
+                "dependsOn": [
+                    { "activity": "Lookup_ODS_Refresh_Check", "dependencyConditions": ["Succeeded"] }
+                ],
+                "typeProperties": {
+                    "variableName": "report_date",
+                    "value": {
+                        "value": "@formatDateTime(addDays(utcNow(), -1), 'dd.MM.yyyy')",
+                        "type": "Expression"
+                    }
+                }
+            },
+
+            {
+                "name": "Lookup_Ops_Email_List",
+                "description": "Fetch TO email list for Operations teams from config table.",
+                "type": "Lookup",
+                "dependsOn": [
+                    { "activity": "SetVar_ReportDate", "dependencyConditions": ["Succeeded"] }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT STRING_AGG(re.email_address, ';') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = 'BC_BIMIO_267_Daily' AND re.recipient_group = 'OPERATIONS' AND re.email_type = 'TO' AND re.is_active = 'Y' AND r.is_active = 'Y'",
+                        "queryTimeout": "00:01:00"
+                    },
+                    "dataset": { "referenceName": "DS_AzureSQL_Config", "type": "DatasetReference" },
+                    "firstRowOnly": true
+                }
+            },
+
+            {
+                "name": "Lookup_BI_Email_List",
+                "description": "Fetch BCC email list for BI team from config table.",
+                "type": "Lookup",
+                "dependsOn": [
+                    { "activity": "SetVar_ReportDate", "dependencyConditions": ["Succeeded"] }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT STRING_AGG(re.email_address, ';') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = 'BC_BIMIO_267_Daily' AND re.recipient_group = 'BI_TEAM' AND re.email_type = 'BCC' AND re.is_active = 'Y' AND r.is_active = 'Y'",
+                        "queryTimeout": "00:01:00"
+                    },
+                    "dataset": { "referenceName": "DS_AzureSQL_Config", "type": "DatasetReference" },
+                    "firstRowOnly": true
+                }
+            },
+
+            {
+                "name": "Lookup_Alert_Email_List",
+                "description": "Fetch CC email list for alert-only recipients from config table.",
+                "type": "Lookup",
+                "dependsOn": [
+                    { "activity": "SetVar_ReportDate", "dependencyConditions": ["Succeeded"] }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT STRING_AGG(re.email_address, ';') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = 'BC_BIMIO_267_Daily' AND re.recipient_group = 'ALERT_ONLY' AND re.email_type = 'CC' AND re.is_active = 'Y' AND r.is_active = 'Y'",
+                        "queryTimeout": "00:01:00"
+                    },
+                    "dataset": { "referenceName": "DS_AzureSQL_Config", "type": "DatasetReference" },
+                    "firstRowOnly": true
+                }
+            },
+
+            {
+                "name": "If_ODS_Refreshed",
+                "description": "Branch on ODS refresh status. Replicates: If_1 (VariableIfElseActivity).",
+                "type": "IfCondition",
+                "dependsOn": [
+                    { "activity": "Lookup_Ops_Email_List",   "dependencyConditions": ["Succeeded"] },
+                    { "activity": "Lookup_BI_Email_List",    "dependencyConditions": ["Succeeded"] },
+                    { "activity": "Lookup_Alert_Email_List", "dependencyConditions": ["Succeeded"] }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@greater(activity('Lookup_ODS_Refresh_Check').output.firstRow.ROW_COUNT, 0)",
+                        "type": "Expression"
+                    },
+
+                    "ifFalseActivities": [
+                        {
+                            "name": "Email_ODS_Not_Refreshed",
+                            "description": "Send alert email when ODS data is not ready. Replicates: Email_2 (SendEmailActivity).",
+                            "type": "WebActivity",
+                            "typeProperties": {
+                                "url": {
+                                    "value": "@pipeline().parameters.logic_app_email_url",
+                                    "type": "Expression"
+                                },
+                                "method": "POST",
+                                "headers": { "Content-Type": "application/json" },
+                                "body": {
+                                    "value": "@concat('{\"subject\":\"BIMIO 267 - 12 Hour Prevented Daily (MTD, YTD) For_', variables('report_date'), '\",\"to\":\"', activity('Lookup_Ops_Email_List').output.firstRow.email_list, '\",\"cc\":\"', activity('Lookup_Alert_Email_List').output.firstRow.email_list, '\",\"body\":\"ODS data has not been refreshed today. The daily report cannot be generated.\"}')",
+                                    "type": "Expression"
+                                }
+                            }
+                        }
+                    ],
+
+                    "ifTrueActivities": [
+
+                        {
+                            "name": "Copy_ReportData_To_Blob",
+                            "description": "Run main report SQL and export results to Blob Storage as CSV. Replicates: File_1 (SelectToExcelActivity). Note: ADF exports CSV; downstream Azure Function converts to Excel.",
+                            "type": "Copy",
+                            "policy": {
+                                "timeout": "0.01:00:00",
+                                "retry": 1,
+                                "retryIntervalInSeconds": 30
+                            },
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "SELECT\n    sub.[Network],\n    sub.[LDZ],\n    sub.[Depot],\n    sub.[Work Order],\n    sub.[Root Work Order],\n    sub.[Emergency Date],\n    sub.[Gas Prevented],\n    sub.[Time Difference],\n    sub.[Address],\n    CASE WHEN sub.[Gas Prevented] > DATEFROMPARTS(YEAR(DATEADD(DAY,-1,GETDATE())), MONTH(DATEADD(DAY,-1,GETDATE())), 1) THEN 1 ELSE 0 END AS [MTD],\n    CASE WHEN sub.[Time Difference] <= 12 THEN 1 ELSE 0 END AS [Less 12],\n    CASE WHEN sub.[Time Difference] > 12  THEN 1 ELSE 0 END AS [Great 12],\n    1 AS [Count]\nFROM (\n    SELECT\n        dorg.network                                                            AS [Network],\n        dorg.ldz                                                                AS [LDZ],\n        CASE WHEN dorg.depot_work_group = 'DEPOT_K' THEN 'DEPOT_L'\n             ELSE dorg.depot_work_group END                                     AS [Depot],\n        prev_dwor.work_order_number                                             AS [Work Order],\n        dwor.work_order_number                                                  AS [Root Work Order],\n        dwor.reported_date_time                                                 AS [Emergency Date],\n        DATEADD(SECOND,\n            DATEDIFF(SECOND, '00:00:00', CAST(RIGHT(dtim.hour_24_minute,8) AS TIME)),\n            CAST(CONVERT(DATE, dcal.date_disp_1, 103) AS DATETIME2)\n        )                                                                       AS [Gas Prevented],\n        ROUND(\n            CAST(DATEDIFF(MINUTE,\n                dwor.reported_date_time,\n                DATEADD(SECOND,\n                    DATEDIFF(SECOND,'00:00:00', CAST(RIGHT(dtim.hour_24_minute,8) AS TIME)),\n                    CAST(CONVERT(DATE, dcal.date_disp_1, 103) AS DATETIME2)\n                )\n            ) AS FLOAT) / 60, 2\n        )                                                                       AS [Time Difference],\n        dadr.display_address                                                    AS [Address]\n    FROM abcbimart.fct_gas_escapes_v ge\n        JOIN abcbimart.dim_work_orders     dwor      ON ge.dwor_id_root               = dwor.id\n        JOIN abcbimart.dim_work_orders     prev_dwor ON ge.dwor_id_gas_prevented      = prev_dwor.id\n        JOIN abcbimart.dim_organisation    dorg      ON ge.dorg_id_root               = dorg.id\n        JOIN abcbimart.dim_addresses       dadr      ON ge.dadr_id_root               = dadr.id\n        JOIN abcbimart.dim_calendar        dcal      ON ge.dcal_id_gas_prevented_date = dcal.id\n        JOIN abcbimart.dim_time            dtim      ON ge.dtim_id_gas_prevented_time = dtim.id\n    WHERE ge.latest = 'Y'\n      AND dcal.date_oracle >= DATEADD(MONTH, 3,\n                                  DATEFROMPARTS(\n                                      YEAR(DATEADD(MONTH, -3, DATEADD(DAY, -4, GETDATE()))),\n                                  1, 1))\n      AND dcal.date_oracle < CAST(GETDATE() AS DATE)\n) sub",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "00:30:00"
+                                },
+                                "sink": {
+                                    "type": "DelimitedTextSink",
+                                    "storeSettings": {
+                                        "type": "AzureBlobStorageWriteSettings"
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextWriteSettings",
+                                        "quoteAllText": true,
+                                        "fileExtension": ".csv"
+                                    }
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "DS_AzureSQL_GasEscapes",
+                                    "type": "DatasetReference"
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "DS_Blob_Excel_Output",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "file_name": {
+                                            "value": "@concat('BC_BIMIO_267_PRECOPY_', variables('report_date'), '.csv')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+
+                        {
+                            "name": "Copy_Archive_File",
+                            "description": "Archive a copy of the report with date suffix. Replicates: Copy_1 (CopyFileActivity).",
+                            "type": "Copy",
+                            "dependsOn": [
+                                { "activity": "Copy_ReportData_To_Blob", "dependencyConditions": ["Succeeded"] }
+                            ],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "DelimitedTextSource",
+                                    "storeSettings": { "type": "AzureBlobStorageReadSettings" },
+                                    "formatSettings": { "type": "DelimitedTextReadSettings" }
+                                },
+                                "sink": {
+                                    "type": "DelimitedTextSink",
+                                    "storeSettings": { "type": "AzureBlobStorageWriteSettings" },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextWriteSettings",
+                                        "quoteAllText": true,
+                                        "fileExtension": ".csv"
+                                    }
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "DS_Blob_Excel_Output",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "file_name": {
+                                            "value": "@concat('BC_BIMIO_267_PRECOPY_', variables('report_date'), '.csv')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "DS_Blob_Archive",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "archive_file_name": {
+                                            "value": "@concat('BIMIO267_12Hour_Prevented_Daily_For_', variables('report_date'), '.csv')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+
+                        {
+                            "name": "Email_Report_To_Operations",
+                            "description": "Send report email with Excel attachment to operations teams. Replicates: Email_1 (SendEmailActivity).",
+                            "type": "WebActivity",
+                            "dependsOn": [
+                                { "activity": "Copy_Archive_File", "dependencyConditions": ["Succeeded"] }
+                            ],
+                            "typeProperties": {
+                                "url": {
+                                    "value": "@pipeline().parameters.logic_app_email_url",
+                                    "type": "Expression"
+                                },
+                                "method": "POST",
+                                "headers": { "Content-Type": "application/json" },
+                                "body": {
+                                    "value": "@concat('{\"subject\":\"BIMIO 267 - 12 Hour Prevented Daily (MTD, YTD) For_', variables('report_date'), '\",\"to\":\"', activity('Lookup_Ops_Email_List').output.firstRow.email_list, '\",\"cc\":\"', activity('Lookup_Alert_Email_List').output.firstRow.email_list, '\",\"bcc\":\"', activity('Lookup_BI_Email_List').output.firstRow.email_list, '\",\"attachment_path\":\"bimio-reports/BIMIO267/archive/BIMIO267_12Hour_Prevented_Daily_For_', variables('report_date'), '.csv\"}')",
+                                    "type": "Expression"
+                                }
+                            }
+                        },
+
+                        {
+                            "name": "Email_Confirmation_To_BI_Team",
+                            "description": "Send confirmation email to BI team that pipeline ran successfully. Replicates: Email_3 (SendEmailActivity).",
+                            "type": "WebActivity",
+                            "dependsOn": [
+                                { "activity": "Email_Report_To_Operations", "dependencyConditions": ["Succeeded"] }
+                            ],
+                            "typeProperties": {
+                                "url": {
+                                    "value": "@pipeline().parameters.logic_app_email_url",
+                                    "type": "Expression"
+                                },
+                                "method": "POST",
+                                "headers": { "Content-Type": "application/json" },
+                                "body": {
+                                    "value": "@concat('{\"subject\":\"BIMIO 267 For_', variables('report_date'), ' - Has Run and Been Emailed\",\"to\":\"', activity('Lookup_BI_Email_List').output.firstRow.email_list, '\",\"body\":\"Pipeline completed successfully.\"}')",
+                                    "type": "Expression"
+                                }
+                            }
+                        }
+
+                    ]
+                }
+            }
+        ],
+
+        "parameters": {
+            "logic_app_email_url": {
+                "type": "string",
+                "defaultValue": "https://prod-xx.eastus.logic.azure.com/workflows/YOUR_LOGIC_APP_URL"
+            }
+        },
+
+        "variables": {
+            "report_date": { "type": "String" }
+        },
+
+        "annotations": [],
+
+        "triggers": [
+            {
+                "name": "TR_Daily_0600",
+                "type": "ScheduleTrigger",
+                "runtimeState": "Stopped",
+                "typeProperties": {
+                    "recurrence": {
+                        "frequency": "Day",
+                        "interval": 1,
+                        "startTime": "2026-01-01T06:00:00Z",
+                        "timeZone":  "GMT Standard Time",
+                        "schedule": {
+                            "hours":   [6],
+                            "minutes": [0]
+                        }
+                    }
+                },
+                "pipelines": [
+                    {
+                        "pipelineReference": {
+                            "referenceName": "PL_BC_BIMIO_267_Daily",
+                            "type": "PipelineReference"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

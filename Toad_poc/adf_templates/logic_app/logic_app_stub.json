@@ -1,0 +1,38 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "triggers": {
+        "manual": {
+            "type": "Request",
+            "kind": "Http",
+            "inputs": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "subject":  { "type": "string" },
+                        "to":       { "type": "string" },
+                        "cc":       { "type": "string" },
+                        "bcc":      { "type": "string" },
+                        "body":     { "type": "string" }
+                    }
+                }
+            }
+        }
+    },
+    "actions": {
+        "Respond_OK": {
+            "type": "Response",
+            "inputs": {
+                "statusCode": 200,
+                "body": {
+                    "status": "received",
+                    "subject": "@triggerBody()?['subject']",
+                    "to":      "@triggerBody()?['to']"
+                }
+            },
+            "runAfter": {}
+        }
+    },
+    "outputs": {}
+}

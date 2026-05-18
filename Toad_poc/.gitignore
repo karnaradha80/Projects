@@ -1,0 +1,33 @@
+# ── Sensitive / private files — NEVER commit ──────────────────────────────────
+
+# Reverse mapping file — contains real server names, schema names, credentials
+tools/actual_mappings.csv
+tools/actual_mappings*.csv
+
+# Toad XML source files (may contain sensitive data)
+toad_xml_files/*.txt
+toad_xml_files/*.xml
+
+# Toad-generated Excel reports (real data)
+toad_generated_reports/
+
+# ADF parameter files — contain real server names and resource IDs
+adf_templates/arm_template_parameters.json
+
+# Pipeline output
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

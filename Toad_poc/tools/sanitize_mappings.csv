@@ -1,0 +1,22 @@
+# Custom mappings for Toad XML sanitization
+# Format: original,replacement
+# Lines starting with # are comments
+# Add your organisation-specific values here
+
+# Oracle servers and schemas
+ORACLE_SERVER_NAME,ORACLE_SERVER
+ORACLE_SCHEMA_NAME,ORACLE_SCHEMA
+
+# Internal network shares
+\\real-server\,\\FILESERVER\
+\\real-server.domain.net\,\\FILESERVER\
+
+# Environment names
+RealEnvName,REDSHIFT_ENV
+real_svc_account,svc_account
+
+# Depot / location names (add yours below)
+# RealDepotName,DEPOT_A
+
+# Person names (add yours below)
+# John Smith,Report Owner

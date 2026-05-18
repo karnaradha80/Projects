@@ -1,0 +1,25 @@
+{
+    "name": "LS_Oracle_Source",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Oracle source connection — used for ODS refresh check (T_ODS_LOG)",
+        "type": "Oracle",
+        "typeProperties": {
+            "connectionString": "Host=@{linkedService().oracle_host};Port=1521;Sid=@{linkedService().oracle_sid};User Id=@{linkedService().oracle_user};",
+            "password": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "LS_AzureKeyVault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "oracle-db-password"
+            }
+        },
+        "parameters": {
+            "oracle_host": { "type": "string", "defaultValue": "ORACLE_SERVER" },
+            "oracle_sid":  { "type": "string", "defaultValue": "ORACLE_SCHEMA" },
+            "oracle_user": { "type": "string", "defaultValue": "ORACLE_SCHEMA" }
+        },
+        "annotations": []
+    }
+}
