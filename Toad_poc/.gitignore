@@ -1,17 +1,28 @@
 # ── Sensitive / private files — NEVER commit ──────────────────────────────────
 
-# Reverse mapping file — contains real server names, schema names, credentials
+# Global mapping registry — contains ALL real values (emails, servers, passwords, paths)
+migration_toolset/global/mapping_registry.csv
+
+# Actual email mapping files — contain real client email addresses
+migration_toolset/global/actual_mapping_files/
+migration_toolset/global/final_actual_mapping.csv
+
+# Per-report mapping files — contain real values
+migration_toolset/reports/*/sanitized/*_mapping.csv
+
+# Raw Toad XML input files — contain real credentials and sensitive config
+migration_toolset/input/*.txt
+migration_toolset/input/*.xml
+
+# ADF parameter files — contain real server/resource names (fill before deploying)
+migration_toolset/reports/*/adf/arm_template_parameters.json
+
+# Legacy paths (kept for safety)
 tools/actual_mappings.csv
 tools/actual_mappings*.csv
-
-# Toad XML source files (may contain sensitive data)
 toad_xml_files/*.txt
 toad_xml_files/*.xml
-
-# Toad-generated Excel reports (real data)
 toad_generated_reports/
-
-# ADF parameter files — contain real server names and resource IDs
 adf_templates/arm_template_parameters.json
 
 # Pipeline output

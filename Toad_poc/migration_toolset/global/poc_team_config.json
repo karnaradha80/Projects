@@ -1,0 +1,8 @@
+{
+    "poc_team_emails": [
+        {"email": "a123@zzz.com", "group": "OPERATIONS", "type": "TO"},
+        {"email": "b123@zzz.com", "group": "BI_TEAM",    "type": "BCC"},
+        {"email": "c123@zzz.com", "group": "ALERT_ONLY", "type": "CC"}
+    ],
+    "_note": "Replace the email addresses above with your dev team emails before running Tool 3 --poc"
+}
