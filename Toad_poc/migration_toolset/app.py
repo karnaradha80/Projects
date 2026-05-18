@@ -35,9 +35,9 @@ st.markdown("""
 <style>
     /* ── nxzen brand colours ──────────────────────────────────────────────────
        Green accent : #5EE340
-       Dark navy    : #0D1B2A
-       Mid navy     : #14293F
-       Light navy   : #1E3A5F
+       Black        : #000000
+       Dark grey    : #111111
+       Mid grey     : #222222
        Off-white bg : #F5F7FA
        Border grey  : #DDE3EC
     ───────────────────────────────────────────────────────────────────────── */
@@ -49,7 +49,7 @@ st.markdown("""
 
     /* ── Sidebar ─────────────────────────────────────────────────────────── */
     [data-testid="stSidebar"] {
-        background-color: #0D1B2A !important;
+        background-color: #000000 !important;
         border-right: 3px solid #5EE340;
     }
     [data-testid="stSidebar"] .stMarkdown p,
@@ -69,7 +69,7 @@ st.markdown("""
         color: #7A9BBF !important;
     }
     [data-testid="stSidebar"] hr {
-        border-color: #1E3A5F !important;
+        border-color: #222222 !important;
     }
     /* Sidebar radio + selectbox */
     [data-testid="stSidebar"] [data-testid="stRadio"] label,
@@ -77,18 +77,18 @@ st.markdown("""
         color: #C8D6E5 !important;
     }
     [data-testid="stSidebar"] [data-baseweb="select"] > div {
-        background-color: #14293F !important;
-        border-color: #1E3A5F !important;
+        background-color: #111111 !important;
+        border-color: #222222 !important;
         color: #FFFFFF !important;
     }
     [data-testid="stSidebar"] input {
-        background-color: #14293F !important;
+        background-color: #111111 !important;
         color: #FFFFFF !important;
-        border-color: #1E3A5F !important;
+        border-color: #222222 !important;
     }
     /* Sidebar metric */
     [data-testid="stSidebar"] [data-testid="metric-container"] {
-        background: #14293F;
+        background: #111111;
         border-left: 3px solid #5EE340;
         border-radius: 6px;
         padding: 8px 12px;
@@ -104,9 +104,9 @@ st.markdown("""
     }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
-    h1 { color: #0D1B2A !important; font-weight: 800 !important; }
-    h2 { color: #14293F !important; font-weight: 700 !important; }
-    h3 { color: #1E3A5F !important; font-weight: 600 !important; }
+    h1 { color: #000000 !important; font-weight: 800 !important; }
+    h2 { color: #111111 !important; font-weight: 700 !important; }
+    h3 { color: #222222 !important; font-weight: 600 !important; }
 
     /* ── Divider ─────────────────────────────────────────────────────────── */
     hr { border-color: #DDE3EC !important; }
@@ -114,7 +114,7 @@ st.markdown("""
     /* ── Primary buttons (green) ─────────────────────────────────────────── */
     .stButton > button[kind="primary"] {
         background-color: #5EE340 !important;
-        color: #0D1B2A !important;
+        color: #000000 !important;
         border: none !important;
         border-radius: 6px !important;
         font-weight: 700 !important;
@@ -124,20 +124,20 @@ st.markdown("""
     }
     .stButton > button[kind="primary"]:hover {
         background-color: #4CC832 !important;
-        color: #0D1B2A !important;
+        color: #000000 !important;
     }
     /* Secondary buttons */
     .stButton > button[kind="secondary"] {
         background-color: #FFFFFF !important;
-        color: #0D1B2A !important;
-        border: 1.5px solid #0D1B2A !important;
+        color: #000000 !important;
+        border: 1.5px solid #000000 !important;
         border-radius: 6px !important;
         font-weight: 600 !important;
     }
     .stButton > button[kind="secondary"]:hover {
         background-color: #F5F7FA !important;
         border-color: #5EE340 !important;
-        color: #0D1B2A !important;
+        color: #000000 !important;
     }
     /* All other buttons (use_container_width, etc.) */
     .stButton > button:not([kind]) {
@@ -147,7 +147,7 @@ st.markdown("""
     }
     .stButton > button:not([kind]):hover {
         border-color: #5EE340 !important;
-        color: #0D1B2A !important;
+        color: #000000 !important;
     }
 
     /* ── Tabs ────────────────────────────────────────────────────────────── */
@@ -167,11 +167,11 @@ st.markdown("""
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         background-color: #FFFFFF;
-        color: #0D1B2A !important;
+        color: #000000 !important;
         border-bottom: 3px solid #5EE340 !important;
     }
     .stTabs [data-baseweb="tab"]:hover {
-        color: #0D1B2A !important;
+        color: #000000 !important;
         background-color: #EDF0F5;
     }
 
@@ -184,7 +184,7 @@ st.markdown("""
         padding: 16px !important;
     }
     [data-testid="stMetricValue"] {
-        color: #0D1B2A !important;
+        color: #000000 !important;
         font-weight: 800 !important;
     }
     [data-testid="stMetricLabel"] {
@@ -201,7 +201,7 @@ st.markdown("""
     }
     [data-testid="stAlert"][kind="info"] {
         background-color: #EBF4FF;
-        border-left: 4px solid #1E3A5F;
+        border-left: 4px solid #222222;
         border-radius: 6px;
     }
     [data-testid="stAlert"][kind="warning"] {
@@ -222,7 +222,7 @@ st.markdown("""
     }
     [data-testid="stExpander"] summary {
         font-weight: 600;
-        color: #14293F;
+        color: #111111;
     }
     [data-testid="stExpander"] summary:hover {
         color: #5EE340;
@@ -266,19 +266,19 @@ st.markdown("""
 
     /* ── Download button ─────────────────────────────────────────────────── */
     [data-testid="stDownloadButton"] > button {
-        background-color: #0D1B2A !important;
+        background-color: #000000 !important;
         color: #FFFFFF !important;
         border: none !important;
         border-radius: 6px !important;
         font-weight: 600 !important;
     }
     [data-testid="stDownloadButton"] > button:hover {
-        background-color: #1E3A5F !important;
+        background-color: #222222 !important;
     }
 
     /* ── Custom components ───────────────────────────────────────────────── */
     .output-box {
-        background: #0D1B2A;
+        background: #000000;
         color: #C8D6E5;
         font-family: 'Courier New', monospace;
         font-size: 12.5px;
@@ -292,7 +292,7 @@ st.markdown("""
     .section-title {
         font-size: 14px;
         font-weight: 700;
-        color: #14293F;
+        color: #111111;
         margin-bottom: 6px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -315,7 +315,7 @@ st.markdown("""
 
     /* ── Multiselect tags ────────────────────────────────────────────────── */
     [data-testid="stMultiSelect"] [data-baseweb="tag"] {
-        background-color: #0D1B2A !important;
+        background-color: #000000 !important;
         color: #FFFFFF !important;
     }
 </style>
