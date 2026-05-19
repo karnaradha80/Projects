@@ -3,6 +3,7 @@ Toad Migration Toolset - Streamlit UI
 Run: streamlit run app.py  (from migration_toolset/ directory)
 """
 
+import base64
 import contextlib
 import csv
 import io
@@ -100,7 +101,7 @@ st.markdown("""
     /* ── Main area background ─────────────────────────────────────────────── */
     .main .block-container {
         background-color: #FFFFFF;
-        padding-top: 0.6rem;
+        padding-top: 0.2rem;
     }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
@@ -507,17 +508,36 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main header
+# Main header  (fixed height ≈ 1 inch / 96px)
 # ─────────────────────────────────────────────────────────────────────────────
 
-col_logo, col_title = st.columns([1, 8])
-with col_logo:
-    logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=55)
-with col_title:
-    st.markdown('<h3 style="margin:0;padding:10px 0 0 0;color:#000000;">🔧 Toad Migration Toolset</h3>',
-                unsafe_allow_html=True)
+_logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
+_logo_b64  = ''
+if os.path.exists(_logo_path):
+    with open(_logo_path, 'rb') as _f:
+        _logo_b64 = base64.b64encode(_f.read()).decode()
+
+_logo_img = (f'<img src="data:image/png;base64,{_logo_b64}" '
+             f'style="height:56px;object-fit:contain;" />'
+             if _logo_b64 else '')
+
+st.markdown(f"""
+<div style="
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 96px;
+    padding: 0 8px;
+    background: #ffffff;
+    border-bottom: 2px solid #5EE340;
+    margin-bottom: 12px;
+">
+    {_logo_img}
+    <span style="font-size:20px;font-weight:700;color:#000000;letter-spacing:-0.3px;">
+        🔧 Toad Migration Toolset
+    </span>
+</div>
+""", unsafe_allow_html=True)
 
 if run_mode == 'Single Report':
     if report_name:
