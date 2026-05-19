@@ -120,7 +120,15 @@ st.markdown("""
     [data-testid="stDeployButton"] { display: none !important; }
     #MainMenu { display: none !important; }
     [data-testid="stToolbar"] { display: none !important; }
-    .block-container { padding-top: 0.5rem !important; }
+    /* Make Streamlit header transparent so it doesn't visually block content */
+    [data-testid="stHeader"],
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    /* Push main content below the transparent header bar (~3rem height) */
+    .block-container { padding-top: 3.5rem !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
     h1 { color: #000000 !important; font-weight: 800 !important; }
