@@ -53,6 +53,12 @@ st.markdown("""
         background-color: #000000 !important;
         border-right: 3px solid #5EE340;
     }
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 0 !important;
+    }
+    [data-testid="stSidebarContent"] {
+        padding-top: 0 !important;
+    }
     [data-testid="stSidebar"] .stMarkdown p,
     [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] label,
