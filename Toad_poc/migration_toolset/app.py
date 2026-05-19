@@ -100,14 +100,7 @@ st.markdown("""
     /* ── Main area background ─────────────────────────────────────────────── */
     .main .block-container {
         background-color: #FFFFFF;
-        padding-top: 0 !important;
-    }
-    /* Remove Streamlit's default top gap so header sits flush at top */
-    [data-testid="stAppViewContainer"] > section > div:first-child {
-        padding-top: 0 !important;
-    }
-    [data-testid="stMain"] > div {
-        padding-top: 0 !important;
+        padding-top: 0.5rem !important;
     }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
@@ -522,7 +515,7 @@ st.markdown("""
     display: flex;
     align-items: center;
     gap: 16px;
-    height: 72px;
+    height: 110px;
     padding: 0 8px;
     background: #ffffff;
     border-bottom: 2px solid #5EE340;
