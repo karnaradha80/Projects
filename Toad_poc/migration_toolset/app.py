@@ -110,29 +110,9 @@ st.markdown("""
         padding-top: 0.5rem !important;
     }
 
-    /* ── Hide deploy button and main menu ───────────────────────────────── */
+    /* ── Hide only deploy button and main menu ───────────────────────────── */
     [data-testid="stDeployButton"] { display: none !important; }
     #MainMenu { display: none !important; }
-    /* Collapse header to zero height but let sidebar toggle overflow */
-    [data-testid="stHeader"],
-    header[data-testid="stHeader"],
-    .stApp > header {
-        height: 0 !important;
-        min-height: 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
-        overflow: visible !important;
-    }
-    /* Hide everything inside the header except sidebar toggle buttons */
-    [data-testid="stHeader"] > * { visibility: hidden !important; }
-    [data-testid="stHeader"] [data-testid="collapsedControl"],
-    [data-testid="stHeader"] [data-testid="stSidebarNavCollapseButton"],
-    [data-testid="stHeader"] button[kind="header"],
-    [data-testid="collapsedControl"] {
-        visibility: visible !important;
-        display: flex !important;
-        z-index: 9999 !important;
-    }
     .block-container { padding-top: 0.5rem !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
