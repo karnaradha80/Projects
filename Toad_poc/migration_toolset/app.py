@@ -106,6 +106,8 @@ st.markdown("""
     }
     [data-testid="stSidebar"] hr {
         border-color: #222222 !important;
+        margin-top: 0.3rem !important;
+        margin-bottom: 0.3rem !important;
     }
     /* Run Mode radio — label and buttons on same row */
     [data-testid="stSidebar"] [data-testid="stRadio"] {
