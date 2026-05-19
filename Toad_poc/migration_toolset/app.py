@@ -526,14 +526,36 @@ st.markdown("""
     align-items: center;
     justify-content: center;
     height: 110px;
-    padding: 0 8px;
-    background: #ffffff;
-    border-bottom: 2px solid #5EE340;
-    margin-bottom: 8px;
+    padding: 0 32px;
+    background: linear-gradient(135deg, #0d0d0d 0%, #1c1c1c 50%, #0d0d0d 100%);
+    border: 2px solid #5EE340;
+    border-radius: 16px;
+    box-shadow: 0 0 28px rgba(94,227,64,0.25), 0 6px 24px rgba(0,0,0,0.55);
+    margin-bottom: 12px;
+    position: relative;
+    overflow: hidden;
 ">
-    <span style="font-size:32px;font-weight:700;color:#000000;letter-spacing:-0.5px;">
+    <div style="
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(94,227,64,0.6), transparent);
+    "></div>
+    <span style="
+        font-size: 32px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 1px;
+        text-shadow: 0 0 18px rgba(94,227,64,0.55);
+    ">
         🔧 Toad Migration Toolset
     </span>
+    <div style="
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(94,227,64,0.35), transparent);
+    "></div>
 </div>
 """, unsafe_allow_html=True)
 
