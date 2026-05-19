@@ -703,26 +703,7 @@ def build_pipeline(extractor, report_name=None):
                 f'Generated: {__import__("datetime").date.today()}',
                 f'Source: Toad XML {rn}',
                 'SQL translation: auto -- review before production deployment'
-            ],
-            'triggers': [{
-                'name': 'TR_Daily_0600',
-                'type': 'ScheduleTrigger',
-                'runtimeState': 'Stopped',
-                'typeProperties': {
-                    'recurrence': {
-                        'frequency': 'Day', 'interval': 1,
-                        'startTime': '2026-01-01T06:00:00Z',
-                        'timeZone': 'GMT Standard Time',
-                        'schedule': {'hours': [6], 'minutes': [0]}
-                    }
-                },
-                'pipelines': [{
-                    'pipelineReference': {
-                        'referenceName': f'PL_{safe}',
-                        'type': 'PipelineReference'
-                    }
-                }]
-            }]
+            ]
         }
     }
 
@@ -772,6 +753,34 @@ def build_arm_template(report_name, linked_services, datasets, pipeline):
         'properties': pipeline['properties']
     }
 
+    trigger_resource = {
+        'type': 'Microsoft.DataFactory/factories/triggers',
+        'apiVersion': API_VER,
+        'name': f"[concat(parameters('factoryName'), '/TR_Daily_0600')]",
+        'dependsOn': [
+            "[variables('factoryId')]",
+            f"[concat(variables('factoryId'), '/pipelines/{pl_name}')]"
+        ],
+        'properties': {
+            'runtimeState': 'Stopped',
+            'type': 'ScheduleTrigger',
+            'typeProperties': {
+                'recurrence': {
+                    'frequency': 'Day', 'interval': 1,
+                    'startTime': '2026-01-01T06:00:00Z',
+                    'timeZone': 'GMT Standard Time',
+                    'schedule': {'hours': [6], 'minutes': [0]}
+                }
+            },
+            'pipelines': [{
+                'pipelineReference': {
+                    'referenceName': pl_name,
+                    'type': 'PipelineReference'
+                }
+            }]
+        }
+    }
+
     resources = [
         {
             'type': 'Microsoft.DataFactory/factories',
@@ -783,7 +792,7 @@ def build_arm_template(report_name, linked_services, datasets, pipeline):
         }
     ] + [ls_resource(ls) for ls in linked_services] \
       + [ds_resource(ds) for ds in datasets] \
-      + [pl_resource]
+      + [pl_resource, trigger_resource]
 
     return {
         '$schema': 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#',

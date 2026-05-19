@@ -789,37 +789,6 @@
                     "Generated: 2026-05-19",
                     "Source: Toad XML BC_BIMIO_267_Daily",
                     "SQL translation: auto -- review before production deployment"
-                ],
-                "triggers": [
-                    {
-                        "name": "TR_Daily_0600",
-                        "type": "ScheduleTrigger",
-                        "runtimeState": "Stopped",
-                        "typeProperties": {
-                            "recurrence": {
-                                "frequency": "Day",
-                                "interval": 1,
-                                "startTime": "2026-01-01T06:00:00Z",
-                                "timeZone": "GMT Standard Time",
-                                "schedule": {
-                                    "hours": [
-                                        6
-                                    ],
-                                    "minutes": [
-                                        0
-                                    ]
-                                }
-                            }
-                        },
-                        "pipelines": [
-                            {
-                                "pipelineReference": {
-                                    "referenceName": "PL_BC_BIMIO_267_Daily",
-                                    "type": "PipelineReference"
-                                }
-                            }
-                        ]
-                    }
                 ]
             }
         },
