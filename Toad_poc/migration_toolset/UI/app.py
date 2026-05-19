@@ -466,6 +466,25 @@ def _input_files():
                   if f.lower().endswith(('.txt', '.xml')))
 
 
+def _write_process_log(report_name, step, step_name, ok, output):
+    """Append a timestamped log file to reports/<report>/process_log/."""
+    from datetime import datetime
+    log_dir = os.path.join(REPORTS_DIR, report_name, 'process_log')
+    os.makedirs(log_dir, exist_ok=True)
+    ts = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    status = 'SUCCESS' if ok else 'FAILED'
+    fname = f'{ts}_step{step}_{step_name}_{status}.txt'
+    header = (
+        f'Report   : {report_name}\n'
+        f'Step     : {step} — {step_name}\n'
+        f'Status   : {status}\n'
+        f'Timestamp: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n'
+        f'{"─" * 60}\n\n'
+    )
+    with open(os.path.join(log_dir, fname), 'w', encoding='utf-8') as f:
+        f.write(header + output)
+
+
 def _clear_from_step(report_name, from_step):
     """Delete output folders for from_step and all following steps, clear session state."""
     import shutil
@@ -917,6 +936,8 @@ with tabs[0]:
 
             st.session_state['tool1_output'] = output
             st.session_state['tool1_ok'] = ok
+            if report_name:
+                _write_process_log(report_name, 1, 'sanitize', ok, output)
 
     # Show results
     if 'tool1_output' in st.session_state:
@@ -977,6 +998,7 @@ with tabs[1]:
                     ok, output = _capture(generate_adf, report_name, verbose2)
                 st.session_state['tool2_output'] = output
                 st.session_state['tool2_ok'] = ok
+                _write_process_log(report_name, 2, 'adf_templates', ok, output)
 
         if 'tool2_output' in st.session_state:
             ok     = st.session_state['tool2_ok']
@@ -1048,6 +1070,7 @@ with tabs[2]:
                     ok, output = _capture(generate_config, report_name, verbose3, poc_mode)
                 st.session_state['tool3_output'] = output
                 st.session_state['tool3_ok'] = ok
+                _write_process_log(report_name, 3, 'config_setup', ok, output)
 
         if 'tool3_output' in st.session_state:
             ok     = st.session_state['tool3_ok']
@@ -1177,6 +1200,7 @@ with tabs[3]:
                         ok, output = _capture(generate_deploy, report_name, rg, verbose4)
                     st.session_state['tool4_output'] = output
                     st.session_state['tool4_ok'] = ok
+                    _write_process_log(report_name, 4, 'deploy_scripts', ok, output)
 
             with col_deploy:
                 az_cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
@@ -1186,6 +1210,7 @@ with tabs[3]:
                             ok, output = _run_az_deploy(report_name)
                         st.session_state['tool4_az_output'] = output
                         st.session_state['tool4_az_ok'] = ok
+                        _write_process_log(report_name, 4, 'azure_deploy', ok, output)
                 else:
                     st.caption('poc_azure_config.json not found in global/')
 
@@ -1288,6 +1313,7 @@ with tabs[4]:
                     ok, output = _capture(generate_upload, report_name, verbose5)
                 st.session_state['tool5_output'] = output
                 st.session_state['tool5_ok'] = ok
+                _write_process_log(report_name, 5, 'blob_upload', ok, output)
 
         if 'tool5_output' in st.session_state:
             ok     = st.session_state['tool5_ok']
