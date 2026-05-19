@@ -1,6 +1,6 @@
 """
-Toad Migration Toolset - Streamlit UI
-Run: streamlit run app.py  (from migration_toolset/ directory)
+Nxzen Migration Studio - Streamlit UI
+Run: streamlit run app.py  (from migration_toolset/UI/ directory)
 """
 
 import contextlib
@@ -30,7 +30,7 @@ GLOBAL_DIR  = os.path.join(BASE_DIR, 'global')
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title='Toad Migration Toolset',
+    page_title='Nxzen Migration Studio',
     page_icon='🔧',
     layout='wide',
     initial_sidebar_state='expanded',
@@ -418,6 +418,53 @@ st.markdown("""
         background-color: #000000 !important;
         color: #FFFFFF !important;
     }
+
+    /* ── Nxzen logo — rotating scanner animation ────────────────────────── */
+    /* A bright green beam rotates around the logo like a data scanner/radar */
+    @keyframes nxzen-scan {
+        0%   {
+            transform: scale(1.0);
+            filter: drop-shadow( 7px  0   12px rgba(94,227,64,1.0))
+                    drop-shadow( 0    0    5px rgba(94,227,64,0.3));
+        }
+        25%  {
+            transform: scale(1.05);
+            filter: drop-shadow( 0    7px 12px rgba(94,227,64,1.0))
+                    drop-shadow( 0    0    5px rgba(94,227,64,0.3));
+        }
+        50%  {
+            transform: scale(1.08);
+            filter: drop-shadow(-7px  0   12px rgba(94,227,64,1.0))
+                    drop-shadow( 0    0    5px rgba(94,227,64,0.3));
+        }
+        75%  {
+            transform: scale(1.05);
+            filter: drop-shadow( 0   -7px 12px rgba(94,227,64,1.0))
+                    drop-shadow( 0    0    5px rgba(94,227,64,0.3));
+        }
+        100% {
+            transform: scale(1.0);
+            filter: drop-shadow( 7px  0   12px rgba(94,227,64,1.0))
+                    drop-shadow( 0    0    5px rgba(94,227,64,0.3));
+        }
+    }
+    .nxzen-logo-anim {
+        animation: nxzen-scan 2.5s linear infinite;
+        display: inline-block;
+    }
+
+    /* ── "Migration Studio" gradient colour flow ────────────────────────── */
+    @keyframes colour-flow {
+        0%,100% { color: #ffffff; }
+        50%      { color: #5EE340; }
+    }
+    .migrate-letter {
+        display: inline-block;
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        animation: colour-flow 10s ease-in-out infinite;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -655,7 +702,30 @@ with st.sidebar:
 # Main header  (fixed height ≈ 1 inch / 96px)
 # ─────────────────────────────────────────────────────────────────────────────
 
-st.markdown("""
+import base64 as _b64
+_logo_b64 = ''
+_logo_file = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
+if os.path.exists(_logo_file):
+    with open(_logo_file, 'rb') as _f:
+        _logo_b64 = _b64.b64encode(_f.read()).decode()
+_logo_html = (
+    f'<div class="nxzen-logo-anim" style="'
+    f'display:inline-block; vertical-align:middle; margin-right:18px;'
+    f'width:90px; height:70px;'
+    f'background-image:url(\'data:image/png;base64,{_logo_b64}\');'
+    f'background-size:90px auto;'
+    f'background-repeat:no-repeat;'
+    f'background-position:top center;'
+    f'"></div>'
+) if _logo_b64 else ''
+
+_wave_html = ''.join(
+    f'<span class="migrate-letter" style="animation-delay:{i * 0.08:.2f}s;">'
+    f'{"&nbsp;" if c == " " else c}</span>'
+    for i, c in enumerate('Migration Studio')
+)
+
+st.markdown(f"""
 <div style="
     display: flex;
     align-items: center;
@@ -676,14 +746,8 @@ st.markdown("""
         height: 1px;
         background: linear-gradient(90deg, transparent, rgba(94,227,64,0.6), transparent);
     "></div>
-    <span style="
-        font-size: 32px;
-        font-weight: 700;
-        color: #ffffff;
-        letter-spacing: 1px;
-        text-shadow: 0 0 18px rgba(94,227,64,0.55);
-    ">
-        🔧 Toad Migration Toolset
+    <span style="display:flex; align-items:center;">
+        {_logo_html}{_wave_html}
     </span>
     <div style="
         position: absolute;
@@ -775,7 +839,7 @@ if run_mode == 'Batch Run':
                 # Tool 1 — always run if selected (provides report_name)
                 if run_t1:
                     ok, out = _capture(sanitize_file, xml_path, registry, batch_verb)
-                    registry.save()
+                    registry._save()
                     row['t1'] = ok
                     if not ok:
                         row['errors'].append(f'Tool 1: {out.splitlines()[-1] if out.strip() else "failed"}')
@@ -932,7 +996,7 @@ with tabs[0]:
 
             with st.spinner('Sanitizing...'):
                 ok, output = _capture(sanitize_file, file_to_process, registry, verbose1)
-                registry.save()
+                registry._save()
 
             st.session_state['tool1_output'] = output
             st.session_state['tool1_ok'] = ok
@@ -1116,23 +1180,53 @@ with tabs[2]:
 
 def _run_az_deploy(report_name):
     import subprocess, json as _json, shutil
-    # Use full path on Windows if az is not in Streamlit's PATH
+
     AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
+
+    # Locate sqlcmd — try PATH first, then common SQL Server install locations
+    SQLCMD = shutil.which('sqlcmd')
+    if not SQLCMD:
+        for _candidate in [
+            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\170\Tools\Binn\SQLCMD.EXE',
+            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\130\Tools\Binn\SQLCMD.EXE',
+            r'C:\Program Files\Microsoft SQL Server\160\Tools\Binn\sqlcmd.exe',
+            r'C:\Program Files\Microsoft SQL Server\150\Tools\Binn\sqlcmd.exe',
+            r'C:\Program Files\Microsoft SQL Server\140\Tools\Binn\sqlcmd.exe',
+        ]:
+            if os.path.exists(_candidate):
+                SQLCMD = _candidate
+                break
+
     cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
     if not os.path.exists(cfg_path):
         return False, 'poc_azure_config.json not found in global/.'
     with open(cfg_path, encoding='utf-8') as f:
         cfg = _json.load(f)
 
-    sub  = cfg['subscription_id']
-    rg   = cfg['resource_group']
-    loc  = cfg['location']
-    adf  = cfg['adf_name']
+    sub = cfg['subscription_id']
+    rg  = cfg['resource_group']
+    loc = cfg['location']
+    kv  = cfg['keyvault_name']
+    srv = cfg['sql_server']
+    db  = cfg['sql_database']
+    usr = cfg['sql_admin_user']
 
     arm_path    = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
     params_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template_parameters.json')
 
-    steps = [
+    # SQL script paths (all idempotent — safe to re-run)
+    config_ddl_path  = os.path.join(GLOBAL_DIR, 'config', 'config_schema_ddl.sql')
+    config_data_path = os.path.join(REPORTS_DIR, report_name, 'config', f'{report_name}_config_data.sql')
+    table_ddl_path   = os.path.join(REPORTS_DIR, report_name, 'ddl', f'{report_name}_ddl.sql')
+
+    lines = []
+
+    # ── Phase 1: ADF deployment ───────────────────────────────────────────────
+    lines.append('═' * 60)
+    lines.append('PHASE 1 — ADF ARM Template Deployment')
+    lines.append('═' * 60)
+
+    adf_steps = [
         ([AZ, 'account', 'set', '--subscription', sub],
          f'Setting subscription {sub}'),
         ([AZ, 'group', 'create', '--name', rg, '--location', loc],
@@ -1145,8 +1239,7 @@ def _run_az_deploy(report_name):
          f'Deploying ARM template for {report_name}'),
     ]
 
-    lines = []
-    for cmd, desc in steps:
+    for cmd, desc in adf_steps:
         lines.append(f'\n>> {desc}')
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -1164,7 +1257,119 @@ def _run_az_deploy(report_name):
             lines.append('ERROR: deployment timed out after 3 minutes.')
             return False, '\n'.join(lines)
 
-    lines.append('\nDeployment completed successfully.')
+    lines.append('\nPhase 1 complete — ADF deployed.')
+
+    # ── Phase 2: Database script execution ───────────────────────────────────
+    lines.append('\n' + '═' * 60)
+    lines.append('PHASE 2 — Database Script Execution')
+    lines.append('═' * 60)
+
+    # Retrieve SQL password from Key Vault
+    lines.append(f'\n>> Retrieving SQL password from Key Vault ({kv})')
+    try:
+        kv_result = subprocess.run(
+            [AZ, 'keyvault', 'secret', 'show',
+             '--vault-name', kv,
+             '--name', 'azuresql-db-password',
+             '--query', 'value',
+             '-o', 'tsv'],
+            capture_output=True, text=True, timeout=30
+        )
+        if kv_result.returncode != 0:
+            lines.append(f'WARNING: Could not retrieve SQL password from Key Vault.')
+            lines.append(kv_result.stderr.strip())
+            lines.append('Skipping database script execution.')
+            lines.append('\nDeployment completed (ADF only — DB scripts skipped).')
+            return True, '\n'.join(lines)
+        sql_pwd = kv_result.stdout.strip()
+        lines.append('SQL password retrieved.')
+    except Exception as e:
+        lines.append(f'WARNING: Key Vault error: {e}')
+        lines.append('Skipping database script execution.')
+        lines.append('\nDeployment completed (ADF only — DB scripts skipped).')
+        return True, '\n'.join(lines)
+
+    server_fqdn = f'{srv}.database.windows.net'
+
+    def _exec_sql_file(sql_path, description):
+        if not os.path.exists(sql_path):
+            lines.append(f'\n>> {description}')
+            lines.append(f'  SKIP — file not found: {os.path.relpath(sql_path, BASE_DIR)}')
+            return True
+        lines.append(f'\n>> {description}')
+        lines.append(f'  File: {os.path.relpath(sql_path, BASE_DIR)}')
+
+        if SQLCMD:
+            # ── sqlcmd path ───────────────────────────────────────────────────
+            try:
+                r = subprocess.run(
+                    [SQLCMD,
+                     '-S', server_fqdn,
+                     '-d', db,
+                     '-U', usr,
+                     '-P', sql_pwd,
+                     '-i', sql_path,
+                     '-b',
+                     '-I'],
+                    capture_output=True, text=True, timeout=120
+                )
+                if r.stdout:
+                    lines.append(r.stdout.strip())
+                if r.stderr:
+                    lines.append(r.stderr.strip())
+                if r.returncode != 0:
+                    lines.append(f'  ERROR: sqlcmd exited {r.returncode}')
+                    return False
+                lines.append('  OK')
+                return True
+            except subprocess.TimeoutExpired:
+                lines.append('  ERROR: SQL execution timed out after 2 minutes.')
+                return False
+
+        # ── pyodbc fallback (ODBC Driver 18 for SQL Server) ───────────────────
+        try:
+            import pyodbc, re as _re
+            conn_str = (
+                f'DRIVER={{ODBC Driver 18 for SQL Server}};'
+                f'SERVER={server_fqdn};'
+                f'DATABASE={db};'
+                f'UID={usr};'
+                f'PWD={sql_pwd};'
+                f'Encrypt=yes;TrustServerCertificate=no;'
+            )
+            with open(sql_path, encoding='utf-8') as _f:
+                sql_text = _f.read()
+            # Split on GO batch separator (T-SQL)
+            batches = [b.strip() for b in _re.split(r'^\s*GO\s*$', sql_text, flags=_re.IGNORECASE | _re.MULTILINE) if b.strip()]
+            conn = pyodbc.connect(conn_str, autocommit=True, timeout=30)
+            cur  = conn.cursor()
+            executed = 0
+            for batch in batches:
+                cur.execute(batch)
+                executed += 1
+            cur.close()
+            conn.close()
+            lines.append(f'  OK — {executed} batch(es) executed via pyodbc')
+            return True
+        except Exception as _e:
+            lines.append(f'  ERROR: {_e}')
+            return False
+
+    db_scripts = [
+        (config_ddl_path,  'Config schema DDL (global — once per environment)'),
+        (config_data_path, f'Config data SQL (report: {report_name})'),
+        (table_ddl_path,   f'Table DDL — mock data (POC only, report: {report_name})'),
+    ]
+
+    for sql_path, desc in db_scripts:
+        if not _exec_sql_file(sql_path, desc):
+            return False, '\n'.join(lines)
+
+    lines.append('\n' + '═' * 60)
+    lines.append('Deployment completed successfully.')
+    lines.append('  ADF pipeline and triggers deployed.')
+    lines.append('  Database scripts executed against: ' + server_fqdn)
+    lines.append('═' * 60)
     return True, '\n'.join(lines)
 
 
