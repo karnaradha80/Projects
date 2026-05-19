@@ -1089,16 +1089,20 @@ with tabs[3]:
             else:
                 st.error('Generation failed. See output below.')
 
-            _show_output(output, 'Tool 4 Output')
-
             deploy_dir = os.path.join(REPORTS_DIR, report_name, 'adf', 'deploy')
             safe_name  = ''.join(c if c.isalnum() or c == '_' else '_' for c in report_name)
 
-            if os.path.exists(deploy_dir):
-                checklist_path = os.path.join(deploy_dir, 'deployment_checklist.txt')
-                if os.path.exists(checklist_path):
-                    with st.expander('Deployment Checklist', expanded=True):
-                        st.code(_read_file(checklist_path), language=None)
+            # Buttons row — output popup + checklist popup side by side
+            btn_cols = st.columns([1, 1, 3])
+            with btn_cols[0]:
+                _show_output(output, 'Tool 4 Output')
+            with btn_cols[1]:
+                if os.path.exists(deploy_dir):
+                    checklist_path = os.path.join(deploy_dir, 'deployment_checklist.txt')
+                    if os.path.exists(checklist_path):
+                        if st.button('📋 View Deployment Checklist', key='view_checklist'):
+                            _output_popup(f'Deployment Checklist — {report_name}',
+                                          _read_file(checklist_path))
 
                 cols = st.columns(4)
                 scripts = [
