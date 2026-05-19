@@ -474,10 +474,17 @@ def _read_file(path):
         return ''
 
 
+@st.dialog('Output', width='large')
+def _output_popup(label, text):
+    st.markdown(f'**{label}**')
+    st.code(text, language='text')
+
+
 def _show_output(text, label='Output'):
     if text.strip():
-        st.markdown(f'<div class="section-title">{label}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="output-box">{text}</div>', unsafe_allow_html=True)
+        btn_key = f'view_{label.lower().replace(" ", "_").replace(".", "_")}'
+        if st.button(f'📋 View {label}', key=btn_key):
+            _output_popup(label, text)
 
 
 def _download(label, path, mime='text/plain'):
