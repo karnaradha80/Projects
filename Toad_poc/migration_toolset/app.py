@@ -104,10 +104,14 @@ st.markdown("""
         padding-top: 0.5rem !important;
     }
 
-    /* ── Hide deploy button and toolbar menu ────────────────────────────── */
+    /* ── Hide deploy button, toolbar menu, and header bar ───────────────── */
     [data-testid="stDeployButton"] { display: none !important; }
     #MainMenu { display: none !important; }
     [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stHeader"] { display: none !important; }
+    header[data-testid="stHeader"] { display: none !important; }
+    .stApp > header { display: none !important; }
+    .block-container { padding-top: 0.5rem !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
     h1 { color: #000000 !important; font-weight: 800 !important; }
