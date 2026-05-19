@@ -449,8 +449,6 @@ with st.sidebar:
     logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
     if os.path.exists(logo_path):
         st.image(logo_path, width=140)
-    st.title('🔧 Migration Toolset')
-    st.caption('Toad → Azure Data Factory')
     st.divider()
 
     # Run mode
