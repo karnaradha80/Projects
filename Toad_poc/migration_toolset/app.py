@@ -100,7 +100,7 @@ st.markdown("""
     /* ── Main area background ─────────────────────────────────────────────── */
     .main .block-container {
         background-color: #FFFFFF;
-        padding-top: 1.5rem;
+        padding-top: 0.6rem;
     }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
@@ -510,13 +510,14 @@ with st.sidebar:
 # Main header
 # ─────────────────────────────────────────────────────────────────────────────
 
-col_logo, col_title = st.columns([1, 6])
+col_logo, col_title = st.columns([1, 8])
 with col_logo:
     logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
     if os.path.exists(logo_path):
-        st.image(logo_path, width=80)
+        st.image(logo_path, width=55)
 with col_title:
-    st.title('🔧 Toad Migration Toolset')
+    st.markdown('<h3 style="margin:0;padding:10px 0 0 0;color:#000000;">🔧 Toad Migration Toolset</h3>',
+                unsafe_allow_html=True)
 
 if run_mode == 'Single Report':
     if report_name:
