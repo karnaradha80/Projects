@@ -897,26 +897,26 @@ with tabs[0]:
         else:
             st.error('Sanitization failed. See output below.')
 
-        _show_output(output, 'Tool 1 Output')
-
-        # Show mapping CSV if it exists
         if report_name:
             mapping_path = os.path.join(REPORTS_DIR, report_name, 'sanitized',
                                         f'{report_name}_mapping.csv')
-            if os.path.exists(mapping_path):
-                with st.expander('View mapping table (real → mock)'):
-                    try:
-                        import pandas as pd
-                        df = pd.read_csv(mapping_path)
-                        st.dataframe(df, use_container_width=True)
-                    except Exception:
-                        st.code(_read_file(mapping_path))
-
-                _download('Download mapping CSV', mapping_path, 'text/csv')
-
             san_path = os.path.join(REPORTS_DIR, report_name, 'sanitized',
                                     f'{report_name}_sanitized.txt')
+
+            btn_c1, btn_c2 = st.columns([1, 1])
+            with btn_c1:
+                _show_output(output, 'Tool 1 Output')
+            with btn_c2:
+                if os.path.exists(mapping_path):
+                    if st.button('📋 View Mapping Table', key='view_mapping'):
+                        _output_popup(f'Mapping Table — {report_name}',
+                                      _read_file(mapping_path))
+
+            if os.path.exists(mapping_path):
+                _download('Download mapping CSV', mapping_path, 'text/csv')
             _download('Download sanitized XML', san_path)
+        else:
+            _show_output(output, 'Tool 1 Output')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -955,16 +955,18 @@ with tabs[1]:
             else:
                 st.error('Generation failed. See output below.')
 
-            _show_output(output, 'Tool 2 Output')
-
-            # List generated files
             adf_dir = os.path.join(REPORTS_DIR, report_name, 'adf')
-            if os.path.exists(adf_dir):
-                with st.expander('View generated files'):
-                    all_files = glob.glob(os.path.join(adf_dir, '**', '*.json'), recursive=True)
-                    for fp in sorted(all_files):
-                        rel = os.path.relpath(fp, adf_dir)
-                        st.code(rel, language=None)
+
+            btn_c1, btn_c2 = st.columns([1, 1])
+            with btn_c1:
+                _show_output(output, 'Tool 2 Output')
+            with btn_c2:
+                if os.path.exists(adf_dir):
+                    all_json = glob.glob(os.path.join(adf_dir, '**', '*.json'), recursive=True)
+                    if all_json:
+                        file_list = '\n'.join(os.path.relpath(fp, adf_dir) for fp in sorted(all_json))
+                        if st.button('📋 View Generated Files', key='view_adf_files'):
+                            _output_popup(f'Generated ADF Files — {report_name}', file_list)
 
                 arm_path    = os.path.join(adf_dir, 'arm_template.json')
                 params_path = os.path.join(adf_dir, 'arm_template_parameters.json')
@@ -1023,22 +1025,28 @@ with tabs[2]:
             else:
                 st.error('Generation failed. See output below.')
 
-            _show_output(output, 'Tool 3 Output')
-
             config_dir = os.path.join(REPORTS_DIR, report_name, 'config')
             sql_path   = os.path.join(config_dir, f'{report_name}_config_data.sql')
             ddl_path   = os.path.join(GLOBAL_DIR, 'config', 'config_schema_ddl.sql')
 
-            c1, c2 = st.columns(2)
-            with c1:
+            btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1])
+            with btn_c1:
+                _show_output(output, 'Tool 3 Output')
+            with btn_c2:
                 if os.path.exists(sql_path):
-                    with st.expander('Preview config data SQL'):
-                        st.code(_read_file(sql_path), language='sql')
-                    _download('Download config_data.sql', sql_path, 'text/plain')
-            with c2:
+                    if st.button('📋 View Config Data SQL', key='view_config_sql'):
+                        _output_popup(f'Config Data SQL — {report_name}', _read_file(sql_path))
+            with btn_c3:
                 if os.path.exists(ddl_path):
-                    with st.expander('Preview schema DDL'):
-                        st.code(_read_file(ddl_path), language='sql')
+                    if st.button('📋 View Schema DDL', key='view_schema_ddl'):
+                        _output_popup('Config Schema DDL', _read_file(ddl_path))
+
+            dl_c1, dl_c2 = st.columns(2)
+            with dl_c1:
+                if os.path.exists(sql_path):
+                    _download('Download config_data.sql', sql_path, 'text/plain')
+            with dl_c2:
+                if os.path.exists(ddl_path):
                     _download('Download config_schema_ddl.sql', ddl_path, 'text/plain')
 
             st.info('Run order:\n'
@@ -1177,16 +1185,19 @@ with tabs[4]:
             else:
                 st.error('Generation failed. See output below.')
 
-            _show_output(output, 'Tool 5 Output')
-
             blob_dir  = os.path.join(REPORTS_DIR, report_name, 'blob')
             safe_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in report_name)
 
-            if os.path.exists(blob_dir):
-                checklist_path = os.path.join(blob_dir, 'blob_checklist.txt')
-                if os.path.exists(checklist_path):
-                    with st.expander('Blob Upload Checklist', expanded=True):
-                        st.code(_read_file(checklist_path), language=None)
+            btn_c1, btn_c2 = st.columns([1, 1])
+            with btn_c1:
+                _show_output(output, 'Tool 5 Output')
+            with btn_c2:
+                if os.path.exists(blob_dir):
+                    checklist_path = os.path.join(blob_dir, 'blob_checklist.txt')
+                    if os.path.exists(checklist_path):
+                        if st.button('📋 View Blob Checklist', key='view_blob_checklist'):
+                            _output_popup(f'Blob Upload Checklist — {report_name}',
+                                          _read_file(checklist_path))
 
                 cols = st.columns(2)
                 with cols[0]:
