@@ -466,6 +466,35 @@ def _input_files():
                   if f.lower().endswith(('.txt', '.xml')))
 
 
+def _clear_from_step(report_name, from_step):
+    """Delete output folders for from_step and all following steps, clear session state."""
+    import shutil
+    r = os.path.join(REPORTS_DIR, report_name)
+
+    # Output directories owned by each step
+    STEP_DIRS = {
+        1: [os.path.join(r, 'sanitized')],
+        2: [os.path.join(r, 'adf')],
+        3: [os.path.join(r, 'config')],
+        4: [os.path.join(r, 'adf', 'deploy')],
+        5: [os.path.join(r, 'blob')],
+    }
+    # Session state keys owned by each step
+    STEP_KEYS = {
+        1: ['tool1_output', 'tool1_ok'],
+        2: ['tool2_output', 'tool2_ok'],
+        3: ['tool3_output', 'tool3_ok'],
+        4: ['tool4_output', 'tool4_ok', 'tool4_az_output', 'tool4_az_ok'],
+        5: ['tool5_output', 'tool5_ok'],
+    }
+    for step in range(from_step, 6):
+        for d in STEP_DIRS.get(step, []):
+            if os.path.exists(d):
+                shutil.rmtree(d)
+        for key in STEP_KEYS.get(step, []):
+            st.session_state.pop(key, None)
+
+
 def _read_file(path):
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
@@ -864,6 +893,8 @@ with tabs[0]:
     verbose1 = st.checkbox('Verbose output', key='tool1_verbose')
 
     if st.button('▶  Run Sanitize', type='primary', key='btn_tool1'):
+        if report_name:
+            _clear_from_step(report_name, 1)
         # Determine which file to process
         file_to_process = None
         if uploaded:
@@ -940,6 +971,7 @@ with tabs[1]:
             verbose2 = st.checkbox('Verbose output', key='tool2_verbose')
 
             if st.button('▶  Generate ADF Templates', type='primary', key='btn_tool2'):
+                _clear_from_step(report_name, 2)
                 from tool2_adf_generator import generate_adf
                 with st.spinner('Generating ADF ARM templates...'):
                     ok, output = _capture(generate_adf, report_name, verbose2)
@@ -1010,6 +1042,7 @@ with tabs[2]:
                            'Create it with your dev team emails before using POC mode.')
 
             if st.button('▶  Generate Config SQL', type='primary', key='btn_tool3'):
+                _clear_from_step(report_name, 3)
                 from tool3_config_setup import generate_config
                 with st.spinner('Generating config SQL...'):
                     ok, output = _capture(generate_config, report_name, verbose3, poc_mode)
@@ -1137,6 +1170,7 @@ with tabs[3]:
             col_gen, col_deploy = st.columns([1, 1])
             with col_gen:
                 if st.button('▶  Generate Deploy Scripts', type='primary', key='btn_tool4'):
+                    _clear_from_step(report_name, 4)
                     from tool4_adf_deploy import generate_deploy
                     rg = rg_name.strip() if rg_name else '<your-resource-group>'
                     with st.spinner('Generating deployment scripts...'):
@@ -1248,6 +1282,7 @@ with tabs[4]:
             verbose5 = st.checkbox('Verbose output', key='tool5_verbose')
 
             if st.button('▶  Generate Blob Upload Scripts', type='primary', key='btn_tool5'):
+                _clear_from_step(report_name, 5)
                 from tool5_blob_upload import generate_upload
                 with st.spinner('Generating upload scripts...'):
                     ok, output = _capture(generate_upload, report_name, verbose5)
