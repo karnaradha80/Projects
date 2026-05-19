@@ -19,7 +19,7 @@ import glob
 import streamlit as st
 
 # ── Path setup ───────────────────────────────────────────────────────────────
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(BASE_DIR, 'tools')
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
