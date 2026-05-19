@@ -53,18 +53,14 @@ st.markdown("""
         background-color: #000000 !important;
         border-right: 3px solid #5EE340;
     }
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 0 !important;
-        margin-top: 0 !important;
+    /* Hide the sidebar's own internal header strip (collapse button row) */
+    [data-testid="stSidebarHeader"] {
+        display: none !important;
     }
-    [data-testid="stSidebarContent"] {
-        padding-top: 0 !important;
-        margin-top: 0 !important;
-    }
-    [data-testid="stSidebar"] section {
-        padding-top: 0 !important;
-        margin-top: 0 !important;
-    }
+    /* Pull all sidebar content to the very top */
+    [data-testid="stSidebar"] > div:first-child,
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebar"] section,
     [data-testid="stSidebar"] .block-container {
         padding-top: 0 !important;
         margin-top: 0 !important;
