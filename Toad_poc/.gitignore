@@ -1,5 +1,8 @@
 # ── Sensitive / private files — NEVER commit ──────────────────────────────────
 
+# Azure POC config — contains subscription ID, resource names (keep local only)
+migration_toolset/global/poc_azure_config.json
+
 # Global mapping registry — contains ALL real values (emails, servers, passwords, paths)
 migration_toolset/global/mapping_registry.csv
 
