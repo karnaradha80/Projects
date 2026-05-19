@@ -84,6 +84,13 @@ st.markdown("""
     [data-testid="stSidebar"] hr {
         border-color: #222222 !important;
     }
+    /* Reduce gap between sidebar subheaders and their controls */
+    [data-testid="stSidebar"] h3 {
+        margin-bottom: 0.2rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] {
+        margin-top: 0 !important;
+    }
     /* Sidebar radio + selectbox */
     [data-testid="stSidebar"] [data-testid="stRadio"] label,
     [data-testid="stSidebar"] [data-testid="stSelectbox"] label {
