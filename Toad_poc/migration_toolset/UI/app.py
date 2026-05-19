@@ -1058,9 +1058,61 @@ with tabs[2]:
 # TAB 4 — Deploy Scripts (Tool 4)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _run_az_deploy(report_name):
+    import subprocess, json as _json
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return False, 'poc_azure_config.json not found in global/.'
+    with open(cfg_path, encoding='utf-8') as f:
+        cfg = _json.load(f)
+
+    sub  = cfg['subscription_id']
+    rg   = cfg['resource_group']
+    loc  = cfg['location']
+    adf  = cfg['adf_name']
+
+    arm_path    = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
+    params_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template_parameters.json')
+
+    steps = [
+        (['az', 'account', 'set', '--subscription', sub],
+         f'Setting subscription {sub}'),
+        (['az', 'group', 'create', '--name', rg, '--location', loc],
+         f'Ensuring resource group {rg} exists'),
+        (['az', 'deployment', 'group', 'create',
+          '--resource-group', rg,
+          '--template-file', arm_path,
+          '--parameters', f'@{params_path}',
+          '--name', f'deploy-{report_name}'],
+         f'Deploying ARM template for {report_name}'),
+    ]
+
+    lines = []
+    for cmd, desc in steps:
+        lines.append(f'\n>> {desc}')
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.stdout:
+                lines.append(result.stdout.strip())
+            if result.stderr:
+                lines.append(result.stderr.strip())
+            if result.returncode != 0:
+                lines.append(f'ERROR: step failed (exit {result.returncode})')
+                return False, '\n'.join(lines)
+        except FileNotFoundError:
+            lines.append('ERROR: az CLI not found. Install Azure CLI and run "az login" first.')
+            return False, '\n'.join(lines)
+        except subprocess.TimeoutExpired:
+            lines.append('ERROR: deployment timed out after 3 minutes.')
+            return False, '\n'.join(lines)
+
+    lines.append('\nDeployment completed successfully.')
+    return True, '\n'.join(lines)
+
+
 with tabs[3]:
     st.subheader('Step 4 — ADF Deployment Scripts')
-    st.caption('Generates PowerShell + bash az deployment scripts (bootstrap once / per-report).')
+    st.caption('Generates deployment scripts and optionally auto-deploys to Azure POC.')
 
     if not report_name:
         st.warning('Select a report in the sidebar first.')
@@ -1080,31 +1132,55 @@ with tabs[3]:
             with c2:
                 verbose4 = st.checkbox('Verbose output', key='tool4_verbose')
 
-            if st.button('▶  Generate Deploy Scripts', type='primary', key='btn_tool4'):
-                from tool4_adf_deploy import generate_deploy
-                rg = rg_name.strip() if rg_name else '<your-resource-group>'
-                with st.spinner('Generating deployment scripts...'):
-                    ok, output = _capture(generate_deploy, report_name, rg, verbose4)
-                st.session_state['tool4_output'] = output
-                st.session_state['tool4_ok'] = ok
+            col_gen, col_deploy = st.columns([1, 1])
+            with col_gen:
+                if st.button('▶  Generate Deploy Scripts', type='primary', key='btn_tool4'):
+                    from tool4_adf_deploy import generate_deploy
+                    rg = rg_name.strip() if rg_name else '<your-resource-group>'
+                    with st.spinner('Generating deployment scripts...'):
+                        ok, output = _capture(generate_deploy, report_name, rg, verbose4)
+                    st.session_state['tool4_output'] = output
+                    st.session_state['tool4_ok'] = ok
 
-        if 'tool4_output' in st.session_state:
-            ok     = st.session_state['tool4_ok']
-            output = st.session_state['tool4_output']
+            with col_deploy:
+                az_cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+                if os.path.exists(az_cfg_path):
+                    if st.button('🚀  Deploy to Azure POC', type='primary', key='btn_az_deploy'):
+                        with st.spinner('Deploying to Azure POC — this may take a minute...'):
+                            ok, output = _run_az_deploy(report_name)
+                        st.session_state['tool4_az_output'] = output
+                        st.session_state['tool4_az_ok'] = ok
+                else:
+                    st.caption('poc_azure_config.json not found in global/')
 
-            if ok:
-                st.success('Deployment scripts generated.')
-            else:
-                st.error('Generation failed. See output below.')
-
+        if 'tool4_output' in st.session_state or 'tool4_az_output' in st.session_state:
             deploy_dir = os.path.join(REPORTS_DIR, report_name, 'adf', 'deploy')
             safe_name  = ''.join(c if c.isalnum() or c == '_' else '_' for c in report_name)
 
-            # Buttons row — output popup + checklist popup side by side
-            btn_cols = st.columns([1, 1, 3])
+            # Status messages
+            if 'tool4_output' in st.session_state:
+                if st.session_state['tool4_ok']:
+                    st.success('Deployment scripts generated.')
+                else:
+                    st.error('Script generation failed.')
+
+            if 'tool4_az_output' in st.session_state:
+                if st.session_state['tool4_az_ok']:
+                    st.success('Deployed to Azure POC successfully.')
+                else:
+                    st.error('Azure deployment failed. View output for details.')
+
+            # Popup buttons row
+            btn_cols = st.columns([1, 1, 1, 2])
             with btn_cols[0]:
-                _show_output(output, 'Tool 4 Output')
+                if 'tool4_output' in st.session_state:
+                    _show_output(st.session_state['tool4_output'], 'Tool 4 Output')
             with btn_cols[1]:
+                if 'tool4_az_output' in st.session_state:
+                    if st.button('📋 View Deploy Output', key='view_az_output'):
+                        _output_popup(f'Azure Deployment Output — {report_name}',
+                                      st.session_state['tool4_az_output'])
+            with btn_cols[2]:
                 if os.path.exists(deploy_dir):
                     checklist_path = os.path.join(deploy_dir, 'deployment_checklist.txt')
                     if os.path.exists(checklist_path):
