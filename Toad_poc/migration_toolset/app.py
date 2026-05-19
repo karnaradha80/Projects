@@ -116,9 +116,10 @@ st.markdown("""
         padding-top: 0.5rem !important;
     }
 
-    /* ── Hide only deploy button and main menu ───────────────────────────── */
+    /* ── Hide deploy button, main menu and right-side toolbar ───────────── */
     [data-testid="stDeployButton"] { display: none !important; }
     #MainMenu { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
     .block-container { padding-top: 0.5rem !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
