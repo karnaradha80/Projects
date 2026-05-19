@@ -107,12 +107,24 @@ st.markdown("""
     [data-testid="stSidebar"] hr {
         border-color: #222222 !important;
     }
-    /* Reduce gap between sidebar subheaders and their controls */
-    [data-testid="stSidebar"] h3 {
-        margin-bottom: 0.2rem !important;
-    }
+    /* Run Mode radio — label and buttons on same row */
     [data-testid="stSidebar"] [data-testid="stRadio"] {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
         margin-top: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] > label:first-child {
+        white-space: nowrap !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        margin-bottom: 0 !important;
+        flex-shrink: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] > div {
+        display: flex !important;
+        flex-direction: row !important;
     }
     /* Sidebar radio + selectbox */
     [data-testid="stSidebar"] [data-testid="stRadio"] label,
@@ -478,9 +490,8 @@ with st.sidebar:
         st.image(logo_path, width=140)
 
     # Run mode
-    st.subheader('Run Mode')
-    run_mode = st.radio('run_mode', ['Single Report', 'Batch Run'],
-                        horizontal=True, label_visibility='collapsed')
+    run_mode = st.radio('Run Mode', ['Single Report', 'Batch Run'],
+                        horizontal=True, label_visibility='visible')
 
     st.divider()
 
