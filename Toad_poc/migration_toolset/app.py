@@ -113,10 +113,12 @@ st.markdown("""
     /* ── Hide deploy button, toolbar menu, and header bar ───────────────── */
     [data-testid="stDeployButton"] { display: none !important; }
     #MainMenu { display: none !important; }
-    [data-testid="stToolbar"] { display: none !important; }
-    [data-testid="stHeader"] { display: none !important; }
-    header[data-testid="stHeader"] { display: none !important; }
-    .stApp > header { display: none !important; }
+    [data-testid="stToolbar"] { visibility: hidden !important; height: 0 !important; }
+    [data-testid="stHeader"] { background: transparent !important; }
+    header[data-testid="stHeader"] { background: transparent !important; }
+    .stApp > header { background: transparent !important; }
+    /* Keep sidebar toggle button always visible */
+    [data-testid="collapsedControl"] { display: flex !important; visibility: visible !important; }
     .block-container { padding-top: 0.5rem !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
