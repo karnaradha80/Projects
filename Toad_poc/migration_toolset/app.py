@@ -100,7 +100,14 @@ st.markdown("""
     /* ── Main area background ─────────────────────────────────────────────── */
     .main .block-container {
         background-color: #FFFFFF;
-        padding-top: 0.2rem;
+        padding-top: 0 !important;
+    }
+    /* Remove Streamlit's default top gap so header sits flush at top */
+    [data-testid="stAppViewContainer"] > section > div:first-child {
+        padding-top: 0 !important;
+    }
+    [data-testid="stMain"] > div {
+        padding-top: 0 !important;
     }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
@@ -519,7 +526,7 @@ st.markdown("""
     padding: 0 8px;
     background: #ffffff;
     border-bottom: 2px solid #5EE340;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 ">
     <span style="font-size:20px;font-weight:700;color:#000000;letter-spacing:-0.3px;">
         🔧 Toad Migration Toolset
