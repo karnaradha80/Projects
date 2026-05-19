@@ -55,9 +55,19 @@ st.markdown("""
     }
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 0 !important;
+        margin-top: 0 !important;
     }
     [data-testid="stSidebarContent"] {
         padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
+    [data-testid="stSidebar"] section {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
+    [data-testid="stSidebar"] .block-container {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
     }
     [data-testid="stSidebar"] .stMarkdown p,
     [data-testid="stSidebar"] .stMarkdown,
