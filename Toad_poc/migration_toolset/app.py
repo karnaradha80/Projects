@@ -48,6 +48,29 @@ st.markdown("""
         font-family: 'Inter', 'Segoe UI', sans-serif;
     }
 
+    /* ── Compact full-viewport layout (no browser scrollbars) ───────────── */
+    html, body { overflow: hidden !important; height: 100vh !important; }
+    .stApp { height: 100vh !important; overflow: hidden !important; }
+    [data-testid="stAppViewContainer"] { height: 100vh !important; overflow: hidden !important; }
+    [data-testid="stMain"] {
+        height: 100vh !important;
+        overflow: hidden !important;
+    }
+    .main .block-container {
+        height: calc(100vh - 3.8rem) !important;
+        max-height: calc(100vh - 3.8rem) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+        padding-bottom: 0.5rem !important;
+    }
+    [data-testid="stSidebar"] {
+        height: 100vh !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
+
     /* ── Sidebar ─────────────────────────────────────────────────────────── */
     [data-testid="stSidebar"] {
         background-color: #000000 !important;
@@ -118,10 +141,7 @@ st.markdown("""
     }
 
     /* ── Main area background ─────────────────────────────────────────────── */
-    .main .block-container {
-        background-color: #FFFFFF;
-        padding-top: 0.5rem !important;
-    }
+    .main .block-container { background-color: #FFFFFF; }
 
     /* ── Hide deploy button, main menu and right-side toolbar ───────────── */
     [data-testid="stDeployButton"] { display: none !important; }
