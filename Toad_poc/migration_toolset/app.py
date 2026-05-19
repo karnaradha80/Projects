@@ -3,7 +3,6 @@ Toad Migration Toolset - Streamlit UI
 Run: streamlit run app.py  (from migration_toolset/ directory)
 """
 
-import base64
 import contextlib
 import csv
 import io
@@ -511,17 +510,7 @@ with st.sidebar:
 # Main header  (fixed height ≈ 1 inch / 96px)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_logo_path = os.path.join(BASE_DIR, 'assets', 'nxzen_logo.png')
-_logo_b64  = ''
-if os.path.exists(_logo_path):
-    with open(_logo_path, 'rb') as _f:
-        _logo_b64 = base64.b64encode(_f.read()).decode()
-
-_logo_img = (f'<img src="data:image/png;base64,{_logo_b64}" '
-             f'style="height:56px;object-fit:contain;" />'
-             if _logo_b64 else '')
-
-st.markdown(f"""
+st.markdown("""
 <div style="
     display: flex;
     align-items: center;
@@ -532,7 +521,6 @@ st.markdown(f"""
     border-bottom: 2px solid #5EE340;
     margin-bottom: 12px;
 ">
-    {_logo_img}
     <span style="font-size:20px;font-weight:700;color:#000000;letter-spacing:-0.3px;">
         🔧 Toad Migration Toolset
     </span>
