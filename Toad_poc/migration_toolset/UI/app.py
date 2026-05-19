@@ -1059,7 +1059,9 @@ with tabs[2]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_az_deploy(report_name):
-    import subprocess, json as _json
+    import subprocess, json as _json, shutil
+    # Use full path on Windows if az is not in Streamlit's PATH
+    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
     cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
     if not os.path.exists(cfg_path):
         return False, 'poc_azure_config.json not found in global/.'
@@ -1075,11 +1077,11 @@ def _run_az_deploy(report_name):
     params_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template_parameters.json')
 
     steps = [
-        (['az', 'account', 'set', '--subscription', sub],
+        ([AZ, 'account', 'set', '--subscription', sub],
          f'Setting subscription {sub}'),
-        (['az', 'group', 'create', '--name', rg, '--location', loc],
+        ([AZ, 'group', 'create', '--name', rg, '--location', loc],
          f'Ensuring resource group {rg} exists'),
-        (['az', 'deployment', 'group', 'create',
+        ([AZ, 'deployment', 'group', 'create',
           '--resource-group', rg,
           '--template-file', arm_path,
           '--parameters', f'@{params_path}',
