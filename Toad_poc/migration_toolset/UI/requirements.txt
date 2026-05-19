@@ -1,0 +1,5 @@
+# Toad Migration Toolset — UI dependencies
+streamlit==1.57.0
+pandas==3.0.1
+openpyxl==3.1.5
+lxml==6.0.2
