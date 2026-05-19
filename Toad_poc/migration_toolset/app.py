@@ -537,16 +537,19 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if run_mode == 'Single Report':
-    if report_name:
-        st.caption(f'Working on: **{report_name}**')
-    else:
-        st.caption('Select a report in the sidebar to begin.')
-else:
-    n_sel = len(st.session_state.get('batch_files', []))
-    st.caption(f'Batch mode — {n_sel} file(s) selected')
+# ─────────────────────────────────────────────────────────────────────────────
+# SINGLE REPORT — Tabs (placed directly below header)
+# ─────────────────────────────────────────────────────────────────────────────
 
-st.divider()
+if run_mode == 'Single Report':
+    tabs = st.tabs([
+        '1 - Sanitize',
+        '2 - ADF Templates',
+        '3 - Config Setup',
+        '4 - Deploy Scripts',
+        '5 - Blob Upload',
+        '6 - POC Tools',
+    ])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BATCH MODE
@@ -717,21 +720,6 @@ if run_mode == 'Batch Run':
 
     # Stop here — don't show single-report tabs in batch mode
     st.stop()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SINGLE REPORT — Tabs
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Tabs
-tabs = st.tabs([
-    '1 - Sanitize',
-    '2 - ADF Templates',
-    '3 - Config Setup',
-    '4 - Deploy Scripts',
-    '5 - Blob Upload',
-    '6 - POC Tools',
-])
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 1 — Sanitize (Tool 1)
