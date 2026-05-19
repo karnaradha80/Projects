@@ -128,6 +128,18 @@ st.markdown("""
         display: flex !important;
         flex-direction: row !important;
     }
+    /* Sidebar checkbox list — compact */
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] {
+        margin-bottom: 0 !important;
+        padding: 1px 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label {
+        font-size: 0.78rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 190px !important;
+    }
     /* Sidebar radio + selectbox */
     [data-testid="stSidebar"] [data-testid="stRadio"] label,
     [data-testid="stSidebar"] [data-testid="stSelectbox"] label {
@@ -545,33 +557,27 @@ with st.sidebar:
         if total == 0:
             st.warning('No files in input/ yet.')
         else:
-            st.caption(f'{total} file(s) found in input/')
-
-            # Select first N
-            nc1, nc2 = st.columns([2, 1])
-            with nc1:
-                first_n = st.number_input('Select first N files', min_value=1,
-                                          max_value=total, value=min(10, total),
-                                          step=1, key='batch_first_n')
-            with nc2:
-                st.markdown('<div style="margin-top:28px"></div>',
-                            unsafe_allow_html=True)
-                if st.button('Select', use_container_width=True, key='btn_first_n'):
-                    st.session_state['batch_files'] = all_files[:int(first_n)]
-
-            # Select all
-            if st.button(f'Select All ({total})', use_container_width=True):
+            # Select All / Deselect All toggle
+            all_checked = st.checkbox(
+                f'Select All ({total})',
+                value=len(st.session_state.get('batch_files', [])) == total,
+                key='batch_select_all'
+            )
+            if all_checked:
                 st.session_state['batch_files'] = all_files
 
-            # Manual multi-select
-            selected = st.multiselect(
-                'Or pick individual files',
-                all_files,
-                default=st.session_state.get('batch_files', []),
-                key='batch_multiselect',
-            )
+            st.markdown('<div style="margin:4px 0"></div>', unsafe_allow_html=True)
+
+            # Individual checkboxes
+            selected = []
+            for f in all_files:
+                default_val = all_checked or f in st.session_state.get('batch_files', [])
+                checked = st.checkbox(f, value=default_val, key=f'chk_{f}')
+                if checked:
+                    selected.append(f)
+
             st.session_state['batch_files'] = selected
-            st.caption(f'{len(selected)} file(s) selected')
+            st.caption(f'{len(selected)} of {total} selected')
 
         st.divider()
         if 'batch_results' in st.session_state:
