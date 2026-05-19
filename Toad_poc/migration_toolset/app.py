@@ -515,7 +515,7 @@ st.markdown("""
     display: flex;
     align-items: center;
     gap: 16px;
-    height: 144px;
+    height: 72px;
     padding: 0 8px;
     background: #ffffff;
     border-bottom: 2px solid #5EE340;
