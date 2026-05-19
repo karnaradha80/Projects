@@ -28,6 +28,7 @@ st.set_page_config(
     page_icon='🔧',
     layout='wide',
     initial_sidebar_state='expanded',
+    menu_items={},
 )
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
@@ -102,6 +103,11 @@ st.markdown("""
         background-color: #FFFFFF;
         padding-top: 0.5rem !important;
     }
+
+    /* ── Hide deploy button and toolbar menu ────────────────────────────── */
+    [data-testid="stDeployButton"] { display: none !important; }
+    #MainMenu { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
 
     /* ── Page title ──────────────────────────────────────────────────────── */
     h1 { color: #000000 !important; font-weight: 800 !important; }
