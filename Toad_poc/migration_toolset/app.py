@@ -524,14 +524,14 @@ st.markdown("""
 <div style="
     display: flex;
     align-items: center;
-    gap: 16px;
+    justify-content: center;
     height: 110px;
     padding: 0 8px;
     background: #ffffff;
     border-bottom: 2px solid #5EE340;
     margin-bottom: 8px;
 ">
-    <span style="font-size:20px;font-weight:700;color:#000000;letter-spacing:-0.3px;">
+    <span style="font-size:32px;font-weight:700;color:#000000;letter-spacing:-0.5px;">
         🔧 Toad Migration Toolset
     </span>
 </div>
