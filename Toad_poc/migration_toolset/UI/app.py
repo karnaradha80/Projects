@@ -602,6 +602,174 @@ def _badge(done):
     return f'<span class="step-badge {cls}">{text}</span>'
 
 
+def _run_az_deploy(report_name):
+    import subprocess, json as _json, shutil
+
+    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
+
+    SQLCMD = shutil.which('sqlcmd')
+    if not SQLCMD:
+        for _candidate in [
+            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\170\Tools\Binn\SQLCMD.EXE',
+            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\130\Tools\Binn\SQLCMD.EXE',
+            r'C:\Program Files\Microsoft SQL Server\160\Tools\Binn\sqlcmd.exe',
+            r'C:\Program Files\Microsoft SQL Server\150\Tools\Binn\sqlcmd.exe',
+            r'C:\Program Files\Microsoft SQL Server\140\Tools\Binn\sqlcmd.exe',
+        ]:
+            if os.path.exists(_candidate):
+                SQLCMD = _candidate
+                break
+
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return False, 'poc_azure_config.json not found in global/.'
+    with open(cfg_path, encoding='utf-8') as f:
+        cfg = _json.load(f)
+
+    sub = cfg['subscription_id']
+    rg  = cfg['resource_group']
+    loc = cfg['location']
+    kv  = cfg['keyvault_name']
+    srv = cfg['sql_server']
+    db  = cfg['sql_database']
+    usr = cfg['sql_admin_user']
+
+    arm_path    = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
+    params_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template_parameters.json')
+
+    config_ddl_path  = os.path.join(GLOBAL_DIR, 'config', 'config_schema_ddl.sql')
+    config_data_path = os.path.join(REPORTS_DIR, report_name, 'config', f'{report_name}_config_data.sql')
+    table_ddl_path   = os.path.join(REPORTS_DIR, report_name, 'ddl', f'{report_name}_ddl.sql')
+
+    lines = []
+
+    lines.append('═' * 60)
+    lines.append('PHASE 1 — ADF ARM Template Deployment')
+    lines.append('═' * 60)
+
+    adf_steps = [
+        ([AZ, 'account', 'set', '--subscription', sub],
+         f'Setting subscription {sub}'),
+        ([AZ, 'group', 'create', '--name', rg, '--location', loc],
+         f'Ensuring resource group {rg} exists'),
+        ([AZ, 'deployment', 'group', 'create',
+          '--resource-group', rg,
+          '--template-file', arm_path,
+          '--parameters', f'@{params_path}',
+          '--name', f'deploy-{report_name}'],
+         f'Deploying ARM template for {report_name}'),
+    ]
+
+    for cmd, desc in adf_steps:
+        lines.append(f'\n>> {desc}')
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.stdout:
+                lines.append(result.stdout.strip())
+            if result.stderr:
+                lines.append(result.stderr.strip())
+            if result.returncode != 0:
+                lines.append(f'ERROR: step failed (exit {result.returncode})')
+                return False, '\n'.join(lines)
+        except FileNotFoundError:
+            lines.append('ERROR: az CLI not found. Install Azure CLI and run "az login" first.')
+            return False, '\n'.join(lines)
+        except subprocess.TimeoutExpired:
+            lines.append('ERROR: deployment timed out after 3 minutes.')
+            return False, '\n'.join(lines)
+
+    lines.append('\nPhase 1 complete — ADF deployed.')
+
+    lines.append('\n' + '═' * 60)
+    lines.append('PHASE 2 — Database Script Execution')
+    lines.append('═' * 60)
+
+    lines.append(f'\n>> Retrieving SQL password from Key Vault ({kv})')
+    try:
+        kv_result = subprocess.run(
+            [AZ, 'keyvault', 'secret', 'show',
+             '--vault-name', kv,
+             '--name', 'azuresql-db-password',
+             '--query', 'value',
+             '-o', 'tsv'],
+            capture_output=True, text=True, timeout=30
+        )
+        if kv_result.returncode != 0:
+            lines.append('ERROR: Could not retrieve SQL password from Key Vault.')
+            lines.append(kv_result.stderr.strip())
+            lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
+            return False, '\n'.join(lines)
+        sql_pwd = kv_result.stdout.strip()
+        lines.append('SQL password retrieved.')
+    except Exception as e:
+        lines.append(f'ERROR: Key Vault error: {e}')
+        lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
+        return False, '\n'.join(lines)
+
+    server_fqdn = f'{srv}.database.windows.net'
+
+    def _exec_sql_file(sql_path, description):
+        if not os.path.exists(sql_path):
+            lines.append(f'\n>> {description}')
+            lines.append(f'  SKIP — file not found: {os.path.relpath(sql_path, BASE_DIR)}')
+            return True
+        lines.append(f'\n>> {description}')
+        lines.append(f'  File: {os.path.relpath(sql_path, BASE_DIR)}')
+        if SQLCMD:
+            try:
+                r = subprocess.run(
+                    [SQLCMD, '-S', server_fqdn, '-d', db, '-U', usr,
+                     '-P', sql_pwd, '-i', sql_path, '-b', '-I'],
+                    capture_output=True, text=True, timeout=120
+                )
+                if r.stdout: lines.append(r.stdout.strip())
+                if r.stderr: lines.append(r.stderr.strip())
+                if r.returncode != 0:
+                    lines.append(f'  ERROR: sqlcmd exited {r.returncode}')
+                    return False
+                lines.append('  OK')
+                return True
+            except subprocess.TimeoutExpired:
+                lines.append('  ERROR: SQL execution timed out after 2 minutes.')
+                return False
+        try:
+            import pyodbc, re as _re
+            conn_str = (
+                f'DRIVER={{ODBC Driver 18 for SQL Server}};'
+                f'SERVER={server_fqdn};DATABASE={db};UID={usr};PWD={sql_pwd};'
+                f'Encrypt=yes;TrustServerCertificate=no;'
+            )
+            with open(sql_path, encoding='utf-8') as _f:
+                sql_text = _f.read()
+            batches = [b.strip() for b in _re.split(r'^\s*GO\s*$', sql_text,
+                       flags=_re.IGNORECASE | _re.MULTILINE) if b.strip()]
+            conn = pyodbc.connect(conn_str, autocommit=True, timeout=30)
+            cur  = conn.cursor()
+            for batch in batches:
+                cur.execute(batch)
+            cur.close(); conn.close()
+            lines.append(f'  OK — {len(batches)} batch(es) executed via pyodbc')
+            return True
+        except Exception as _e:
+            lines.append(f'  ERROR: {_e}')
+            return False
+
+    for sql_path, desc in [
+        (config_ddl_path,  'Config schema DDL (global — once per environment)'),
+        (config_data_path, f'Config data SQL (report: {report_name})'),
+        (table_ddl_path,   f'Table DDL — mock data (POC only, report: {report_name})'),
+    ]:
+        if not _exec_sql_file(sql_path, desc):
+            return False, '\n'.join(lines)
+
+    lines.append('\n' + '═' * 60)
+    lines.append('Deployment completed successfully.')
+    lines.append('  ADF pipeline and triggers deployed.')
+    lines.append('  Database scripts executed against: ' + server_fqdn)
+    lines.append('═' * 60)
+    return True, '\n'.join(lines)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Sidebar
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1227,199 +1395,6 @@ with tabs[2]:
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 4 — Deploy Scripts (Tool 4)
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _run_az_deploy(report_name):
-    import subprocess, json as _json, shutil
-
-    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
-
-    # Locate sqlcmd — try PATH first, then common SQL Server install locations
-    SQLCMD = shutil.which('sqlcmd')
-    if not SQLCMD:
-        for _candidate in [
-            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\170\Tools\Binn\SQLCMD.EXE',
-            r'C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\130\Tools\Binn\SQLCMD.EXE',
-            r'C:\Program Files\Microsoft SQL Server\160\Tools\Binn\sqlcmd.exe',
-            r'C:\Program Files\Microsoft SQL Server\150\Tools\Binn\sqlcmd.exe',
-            r'C:\Program Files\Microsoft SQL Server\140\Tools\Binn\sqlcmd.exe',
-        ]:
-            if os.path.exists(_candidate):
-                SQLCMD = _candidate
-                break
-
-    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
-    if not os.path.exists(cfg_path):
-        return False, 'poc_azure_config.json not found in global/.'
-    with open(cfg_path, encoding='utf-8') as f:
-        cfg = _json.load(f)
-
-    sub = cfg['subscription_id']
-    rg  = cfg['resource_group']
-    loc = cfg['location']
-    kv  = cfg['keyvault_name']
-    srv = cfg['sql_server']
-    db  = cfg['sql_database']
-    usr = cfg['sql_admin_user']
-
-    arm_path    = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
-    params_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template_parameters.json')
-
-    # SQL script paths (all idempotent — safe to re-run)
-    config_ddl_path  = os.path.join(GLOBAL_DIR, 'config', 'config_schema_ddl.sql')
-    config_data_path = os.path.join(REPORTS_DIR, report_name, 'config', f'{report_name}_config_data.sql')
-    table_ddl_path   = os.path.join(REPORTS_DIR, report_name, 'ddl', f'{report_name}_ddl.sql')
-
-    lines = []
-
-    # ── Phase 1: ADF deployment ───────────────────────────────────────────────
-    lines.append('═' * 60)
-    lines.append('PHASE 1 — ADF ARM Template Deployment')
-    lines.append('═' * 60)
-
-    adf_steps = [
-        ([AZ, 'account', 'set', '--subscription', sub],
-         f'Setting subscription {sub}'),
-        ([AZ, 'group', 'create', '--name', rg, '--location', loc],
-         f'Ensuring resource group {rg} exists'),
-        ([AZ, 'deployment', 'group', 'create',
-          '--resource-group', rg,
-          '--template-file', arm_path,
-          '--parameters', f'@{params_path}',
-          '--name', f'deploy-{report_name}'],
-         f'Deploying ARM template for {report_name}'),
-    ]
-
-    for cmd, desc in adf_steps:
-        lines.append(f'\n>> {desc}')
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            if result.stdout:
-                lines.append(result.stdout.strip())
-            if result.stderr:
-                lines.append(result.stderr.strip())
-            if result.returncode != 0:
-                lines.append(f'ERROR: step failed (exit {result.returncode})')
-                return False, '\n'.join(lines)
-        except FileNotFoundError:
-            lines.append('ERROR: az CLI not found. Install Azure CLI and run "az login" first.')
-            return False, '\n'.join(lines)
-        except subprocess.TimeoutExpired:
-            lines.append('ERROR: deployment timed out after 3 minutes.')
-            return False, '\n'.join(lines)
-
-    lines.append('\nPhase 1 complete — ADF deployed.')
-
-    # ── Phase 2: Database script execution ───────────────────────────────────
-    lines.append('\n' + '═' * 60)
-    lines.append('PHASE 2 — Database Script Execution')
-    lines.append('═' * 60)
-
-    # Retrieve SQL password from Key Vault
-    lines.append(f'\n>> Retrieving SQL password from Key Vault ({kv})')
-    try:
-        kv_result = subprocess.run(
-            [AZ, 'keyvault', 'secret', 'show',
-             '--vault-name', kv,
-             '--name', 'azuresql-db-password',
-             '--query', 'value',
-             '-o', 'tsv'],
-            capture_output=True, text=True, timeout=30
-        )
-        if kv_result.returncode != 0:
-            lines.append('ERROR: Could not retrieve SQL password from Key Vault.')
-            lines.append(kv_result.stderr.strip())
-            lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
-            return False, '\n'.join(lines)
-        sql_pwd = kv_result.stdout.strip()
-        lines.append('SQL password retrieved.')
-    except Exception as e:
-        lines.append(f'ERROR: Key Vault error: {e}')
-        lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
-        return False, '\n'.join(lines)
-
-    server_fqdn = f'{srv}.database.windows.net'
-
-    def _exec_sql_file(sql_path, description):
-        if not os.path.exists(sql_path):
-            lines.append(f'\n>> {description}')
-            lines.append(f'  SKIP — file not found: {os.path.relpath(sql_path, BASE_DIR)}')
-            return True
-        lines.append(f'\n>> {description}')
-        lines.append(f'  File: {os.path.relpath(sql_path, BASE_DIR)}')
-
-        if SQLCMD:
-            # ── sqlcmd path ───────────────────────────────────────────────────
-            try:
-                r = subprocess.run(
-                    [SQLCMD,
-                     '-S', server_fqdn,
-                     '-d', db,
-                     '-U', usr,
-                     '-P', sql_pwd,
-                     '-i', sql_path,
-                     '-b',
-                     '-I'],
-                    capture_output=True, text=True, timeout=120
-                )
-                if r.stdout:
-                    lines.append(r.stdout.strip())
-                if r.stderr:
-                    lines.append(r.stderr.strip())
-                if r.returncode != 0:
-                    lines.append(f'  ERROR: sqlcmd exited {r.returncode}')
-                    return False
-                lines.append('  OK')
-                return True
-            except subprocess.TimeoutExpired:
-                lines.append('  ERROR: SQL execution timed out after 2 minutes.')
-                return False
-
-        # ── pyodbc fallback (ODBC Driver 18 for SQL Server) ───────────────────
-        try:
-            import pyodbc, re as _re
-            conn_str = (
-                f'DRIVER={{ODBC Driver 18 for SQL Server}};'
-                f'SERVER={server_fqdn};'
-                f'DATABASE={db};'
-                f'UID={usr};'
-                f'PWD={sql_pwd};'
-                f'Encrypt=yes;TrustServerCertificate=no;'
-            )
-            with open(sql_path, encoding='utf-8') as _f:
-                sql_text = _f.read()
-            # Split on GO batch separator (T-SQL)
-            batches = [b.strip() for b in _re.split(r'^\s*GO\s*$', sql_text, flags=_re.IGNORECASE | _re.MULTILINE) if b.strip()]
-            conn = pyodbc.connect(conn_str, autocommit=True, timeout=30)
-            cur  = conn.cursor()
-            executed = 0
-            for batch in batches:
-                cur.execute(batch)
-                executed += 1
-            cur.close()
-            conn.close()
-            lines.append(f'  OK — {executed} batch(es) executed via pyodbc')
-            return True
-        except Exception as _e:
-            lines.append(f'  ERROR: {_e}')
-            return False
-
-    db_scripts = [
-        (config_ddl_path,  'Config schema DDL (global — once per environment)'),
-        (config_data_path, f'Config data SQL (report: {report_name})'),
-        (table_ddl_path,   f'Table DDL — mock data (POC only, report: {report_name})'),
-    ]
-
-    for sql_path, desc in db_scripts:
-        if not _exec_sql_file(sql_path, desc):
-            return False, '\n'.join(lines)
-
-    lines.append('\n' + '═' * 60)
-    lines.append('Deployment completed successfully.')
-    lines.append('  ADF pipeline and triggers deployed.')
-    lines.append('  Database scripts executed against: ' + server_fqdn)
-    lines.append('═' * 60)
-    return True, '\n'.join(lines)
-
 
 with tabs[3]:
     st.subheader('Step 4 — ADF Deployment Scripts')
