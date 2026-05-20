@@ -814,19 +814,25 @@ if run_mode == 'Batch Run':
         # Tool selection
         st.markdown('**Select tools to run for each report:**')
         bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-        with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',      value=True,  key='b_t1')
-        with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates', value=True,  key='b_t2')
-        with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',  value=True,  key='b_t3')
-        with bc4: run_t4 = st.checkbox('Tool 4\nDeploy Scripts',value=False, key='b_t4')
-        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',   value=False, key='b_t5')
+        with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',        value=True,  key='b_t1')
+        with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates',   value=True,  key='b_t2')
+        with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',    value=True,  key='b_t3')
+        with bc4: run_t4 = st.checkbox('Tool 4\nGen Scripts',     value=False, key='b_t4')
+        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',     value=False, key='b_t5')
 
         # Options row
-        oc1, oc2, oc3 = st.columns([1, 1, 2])
-        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)', key='b_poc')
-        with oc2: batch_verb = st.checkbox('Verbose output',    key='b_verb')
-        with oc3: batch_rg   = st.text_input('Resource Group (Tool 4)',
-                                             placeholder='<your-resource-group>',
-                                             key='b_rg')
+        oc1, oc2, oc3, oc4 = st.columns([1, 1, 1, 2])
+        with oc1: batch_poc     = st.checkbox('POC mode (Tool 3)',       key='b_poc')
+        with oc2: batch_verb    = st.checkbox('Verbose output',          key='b_verb')
+        with oc3: batch_az      = st.checkbox('Auto-deploy to Azure',    key='b_az',
+                                              help='After generating scripts (Tool 4), '
+                                                   'run az CLI + execute SQL against the '
+                                                   'POC database. Requires az login.')
+        with oc4: batch_rg      = st.text_input('Resource Group (Tool 4)',
+                                                 placeholder='<your-resource-group>',
+                                                 key='b_rg')
+        if batch_az and not run_t4:
+            st.warning('Auto-deploy to Azure requires Tool 4 (Gen Scripts) to be ticked.')
 
         st.divider()
 
@@ -849,7 +855,7 @@ if run_mode == 'Batch Run':
             for idx, fname in enumerate(batch_files):
                 xml_path = os.path.join(INPUT_DIR, fname)
                 row = {'file': fname, 'report_name': '', 't1': None, 't2': None,
-                       't3': None, 't4': None, 't5': None, 'errors': []}
+                       't3': None, 't4': None, 't4_az': None, 't5': None, 'errors': []}
 
                 pct  = (idx) / len(batch_files)
                 progress_bar.progress(pct, text=f'Processing {idx+1}/{len(batch_files)}: {fname}')
@@ -906,6 +912,13 @@ if run_mode == 'Batch Run':
                         row['t4'] = ok
                         if not ok:
                             row['errors'].append(f'Tool 4: {out.splitlines()[-1] if out.strip() else "failed"}')
+                        elif batch_az:
+                            status_box.info(f'Deploying to Azure: **{rn}**')
+                            az_ok, az_out = _run_az_deploy(rn)
+                            row['t4_az'] = az_ok
+                            if not az_ok:
+                                last = next((l for l in reversed(az_out.splitlines()) if l.strip()), 'failed')
+                                row['errors'].append(f'AZ Deploy: {last}')
 
                     if run_t5:
                         ok, out = _capture(generate_upload, rn, batch_verb)
@@ -934,7 +947,7 @@ if run_mode == 'Batch Run':
             import pandas as pd
             rows = []
             for r in results:
-                rows.append({
+                row_dict = {
                     'File':         r['file'],
                     'Report Name':  r['report_name'] or '(unknown)',
                     'Tool 1':       _cell(r['t1']),
@@ -943,7 +956,10 @@ if run_mode == 'Batch Run':
                     'Tool 4':       _cell(r['t4']),
                     'Tool 5':       _cell(r['t5']),
                     'Errors':       ' | '.join(r['errors']) if r['errors'] else '',
-                })
+                }
+                if any(r.get('t4_az') is not None for r in results):
+                    row_dict['AZ Deploy'] = _cell(r.get('t4_az'))
+                rows.append(row_dict)
             df = pd.DataFrame(rows)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
