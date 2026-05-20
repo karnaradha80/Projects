@@ -341,7 +341,23 @@ def build_checklist(report_name, filled, unfilled, arm_data, rg):
 # Orchestration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_deploy(report_name, rg, verbose=False):
+def _load_rg():
+    """Read resource_group from poc_azure_config.json if available."""
+    cfg = os.path.join(BASE_DIR, 'global', 'poc_azure_config.json')
+    if os.path.exists(cfg):
+        try:
+            with open(cfg, encoding='utf-8') as f:
+                return json.load(f).get('resource_group', '<your-resource-group>')
+        except Exception:
+            pass
+    return '<your-resource-group>'
+
+
+def generate_deploy(report_name, rg=None, verbose=False):
+    # Auto-read resource group from config when not explicitly provided
+    if not rg or rg == '<your-resource-group>':
+        rg = _load_rg()
+
     adf_dir     = os.path.join(REPORTS_DIR, report_name, 'adf')
     deploy_dir  = os.path.join(adf_dir, 'deploy')
     arm_path    = os.path.join(adf_dir, 'arm_template.json')

@@ -821,16 +821,13 @@ if run_mode == 'Batch Run':
         with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',     value=False, key='b_t5')
 
         # Options row
-        oc1, oc2, oc3, oc4 = st.columns([1, 1, 1, 2])
-        with oc1: batch_poc     = st.checkbox('POC mode (Tool 3)',       key='b_poc')
-        with oc2: batch_verb    = st.checkbox('Verbose output',          key='b_verb')
-        with oc3: batch_az      = st.checkbox('Auto-deploy to Azure',    key='b_az',
-                                              help='After generating scripts (Tool 4), '
-                                                   'run az CLI + execute SQL against the '
-                                                   'POC database. Requires az login.')
-        with oc4: batch_rg      = st.text_input('Resource Group (Tool 4)',
-                                                 placeholder='<your-resource-group>',
-                                                 key='b_rg')
+        oc1, oc2, oc3 = st.columns([1, 1, 1])
+        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)',    key='b_poc')
+        with oc2: batch_verb = st.checkbox('Verbose output',       key='b_verb')
+        with oc3: batch_az   = st.checkbox('Auto-deploy to Azure', key='b_az',
+                                           help='After generating scripts (Tool 4), '
+                                                'run az CLI + execute SQL against the '
+                                                'POC database. Requires az login.')
         if batch_az and not run_t4:
             st.warning('Auto-deploy to Azure requires Tool 4 (Gen Scripts) to be ticked.')
 
@@ -846,7 +843,6 @@ if run_mode == 'Batch Run':
 
             registry_path = os.path.join(GLOBAL_DIR, 'mapping_registry.csv')
             registry = MappingRegistry(registry_path)
-            rg = batch_rg.strip() or '<your-resource-group>'
 
             results = []
             progress_bar = st.progress(0, text='Starting...')
@@ -908,7 +904,7 @@ if run_mode == 'Batch Run':
                             row['errors'].append(f'Tool 3: {out.splitlines()[-1] if out.strip() else "failed"}')
 
                     if run_t4:
-                        ok, out = _capture(generate_deploy, rn, rg, batch_verb)
+                        ok, out = _capture(generate_deploy, rn, verbose=batch_verb)
                         row['t4'] = ok
                         if not ok:
                             row['errors'].append(f'Tool 4: {out.splitlines()[-1] if out.strip() else "failed"}')
@@ -1429,22 +1425,15 @@ with tabs[3]:
         else:
             st.success('ARM template found.')
 
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                rg_name = st.text_input('Resource Group name (optional)',
-                                        placeholder='e.g. rg-toad-poc-uksouth',
-                                        key='tool4_rg')
-            with c2:
-                verbose4 = st.checkbox('Verbose output', key='tool4_verbose')
+            verbose4 = st.checkbox('Verbose output', key='tool4_verbose')
 
             col_gen, col_deploy = st.columns([1, 1])
             with col_gen:
                 if st.button('▶  Generate Deploy Scripts', type='primary', key='btn_tool4'):
                     _clear_from_step(report_name, 4)
                     from tool4_adf_deploy import generate_deploy
-                    rg = rg_name.strip() if rg_name else '<your-resource-group>'
                     with st.spinner('Generating deployment scripts...'):
-                        ok, output = _capture(generate_deploy, report_name, rg, verbose4)
+                        ok, output = _capture(generate_deploy, report_name, verbose=verbose4)
                     st.session_state['tool4_output'] = output
                     st.session_state['tool4_ok'] = ok
                     _write_process_log(report_name, 4, 'deploy_scripts', ok, output)
