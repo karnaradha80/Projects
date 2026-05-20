@@ -621,21 +621,40 @@ with st.sidebar:
 
     if run_mode == 'Single Report':
         st.subheader('Report')
-        reports = _existing_reports()
-        sel_mode = st.radio('sel_mode', ['Choose existing', 'Enter name'],
-                            horizontal=True, label_visibility='collapsed')
 
-        if sel_mode == 'Choose existing':
-            report_name = st.selectbox('Report', reports,
-                                       placeholder='-- select --',
-                                       index=None) if reports else None
-            if not reports:
-                st.info('No reports yet. Upload a file in the Sanitize tab.')
-        else:
-            report_name = st.text_input('Report name',
-                                        placeholder='e.g. BC_BIMIO_267_Daily')
-            if report_name:
-                report_name = report_name.strip()
+        existing   = _existing_reports()
+        existing_s = set(existing)
+        from_input = [
+            os.path.splitext(f)[0]
+            for f in _input_files()
+            if not f.startswith('_')
+        ]
+        unprocessed = [n for n in from_input if n not in existing_s]
+
+        # Unified list: processed first, then not-yet-processed from input/
+        all_options = existing + unprocessed
+
+        def _fmt(name):
+            return f'{name}  ✅' if name in existing_s else f'{name}  (new)'
+
+        report_name = st.selectbox(
+            'Select report',
+            all_options,
+            index=None,
+            placeholder='-- select --',
+            format_func=_fmt,
+            key='sidebar_report_sel',
+        ) if all_options else None
+
+        if not all_options:
+            st.info('No reports or input files found.')
+
+        # Manual entry override
+        manual = st.text_input('Or type name manually',
+                               placeholder='e.g. BC_BIMIO_267_Daily',
+                               key='sidebar_manual_rn')
+        if manual.strip():
+            report_name = manual.strip()
 
         st.divider()
 
