@@ -855,28 +855,35 @@ if run_mode == 'Batch Run':
                 progress_bar.progress(pct, text=f'Processing {idx+1}/{len(batch_files)}: {fname}')
                 status_box.info(f'Processing: **{fname}**')
 
-                # Tool 1 — always run if selected (provides report_name)
+                # Pre-extract report_name from XML before running any tool
+                # (ToadXmlParser reads the Xoml Name attribute — most reliable source)
+                try:
+                    from utils.xml_parser import ToadXmlParser
+                    _p = ToadXmlParser(xml_path)
+                    _p.parse()
+                    _pre = _p.summary().get('report_name', '')
+                    if _pre:
+                        row['report_name'] = _pre
+                except Exception:
+                    pass
+
+                # Tool 1 — sanitize
                 if run_t1:
                     ok, out = _capture(sanitize_file, xml_path, registry, batch_verb)
                     registry._save()
                     row['t1'] = ok
                     if not ok:
                         row['errors'].append(f'Tool 1: {out.splitlines()[-1] if out.strip() else "failed"}')
-                    else:
-                        # Extract report_name from output line
+                    elif not row['report_name']:
+                        # Secondary fallback: parse path from Tool 1 printed output
+                        # Output line: "  Sanitized  : .../reports/{name}/sanitized/{name}_sanitized.txt"
                         for line in out.splitlines():
                             if 'Sanitized' in line and ':' in line:
                                 path_part = line.split(':', 1)[1].strip()
-                                rn = os.path.basename(os.path.dirname(path_part))
-                                if rn:
+                                rn = os.path.basename(os.path.dirname(os.path.dirname(path_part)))
+                                if rn and rn != 'sanitized':
                                     row['report_name'] = rn
                                 break
-                        # Fallback: derive from filename
-                        if not row['report_name']:
-                            row['report_name'] = os.path.splitext(fname)[0]
-                else:
-                    # Derive report_name from filename as fallback
-                    row['report_name'] = os.path.splitext(fname)[0]
 
                 rn = row['report_name']
 
