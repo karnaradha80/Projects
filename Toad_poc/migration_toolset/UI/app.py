@@ -817,19 +817,17 @@ if run_mode == 'Batch Run':
         with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',        value=True,  key='b_t1')
         with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates',   value=True,  key='b_t2')
         with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',    value=True,  key='b_t3')
-        with bc4: run_t4 = st.checkbox('Tool 4\nGen Scripts',     value=False, key='b_t4')
-        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',     value=False, key='b_t5')
+        with bc4: run_t4 = st.checkbox('Tool 4\nDeploy to Azure', value=False, key='b_t4')
+        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',    value=False, key='b_t5')
+
+        if run_t4:
+            st.caption('Tool 4 will generate scripts **and** deploy to Azure POC '
+                       '(az CLI + SQL execution). Make sure you have run `az login` first.')
 
         # Options row
-        oc1, oc2, oc3 = st.columns([1, 1, 1])
-        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)',    key='b_poc')
-        with oc2: batch_verb = st.checkbox('Verbose output',       key='b_verb')
-        with oc3: batch_az   = st.checkbox('Auto-deploy to Azure', key='b_az',
-                                           help='After generating scripts (Tool 4), '
-                                                'run az CLI + execute SQL against the '
-                                                'POC database. Requires az login.')
-        if batch_az and not run_t4:
-            st.warning('Auto-deploy to Azure requires Tool 4 (Gen Scripts) to be ticked.')
+        oc1, oc2 = st.columns([1, 1])
+        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)', key='b_poc')
+        with oc2: batch_verb = st.checkbox('Verbose output',    key='b_verb')
 
         st.divider()
 
@@ -904,17 +902,20 @@ if run_mode == 'Batch Run':
                             row['errors'].append(f'Tool 3: {out.splitlines()[-1] if out.strip() else "failed"}')
 
                     if run_t4:
+                        # Step 1: generate scripts
                         ok, out = _capture(generate_deploy, rn, verbose=batch_verb)
-                        row['t4'] = ok
                         if not ok:
-                            row['errors'].append(f'Tool 4: {out.splitlines()[-1] if out.strip() else "failed"}')
-                        elif batch_az:
+                            row['t4'] = False
+                            row['errors'].append(f'Tool 4 (scripts): {out.splitlines()[-1] if out.strip() else "failed"}')
+                        else:
+                            # Step 2: deploy to Azure + execute SQL
                             status_box.info(f'Deploying to Azure: **{rn}**')
                             az_ok, az_out = _run_az_deploy(rn)
-                            row['t4_az'] = az_ok
+                            row['t4'] = az_ok
+                            row['t4_az_out'] = az_out
                             if not az_ok:
                                 last = next((l for l in reversed(az_out.splitlines()) if l.strip()), 'failed')
-                                row['errors'].append(f'AZ Deploy: {last}')
+                                row['errors'].append(f'Tool 4 (deploy): {last}')
 
                     if run_t5:
                         ok, out = _capture(generate_upload, rn, batch_verb)
@@ -958,6 +959,17 @@ if run_mode == 'Batch Run':
                 rows.append(row_dict)
             df = pd.DataFrame(rows)
             st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # Per-report deploy output buttons
+            az_results = [r for r in results if r.get('t4_az_out')]
+            if az_results:
+                st.markdown('**Deploy output (click to view per report):**')
+                for r in az_results:
+                    rn_label = r['report_name'] or r['file']
+                    icon = '✅' if r.get('t4') else '❌'
+                    if st.button(f'{icon} {rn_label} — View Deploy Output',
+                                 key=f'view_az_{rn_label}'):
+                        _output_popup(f'Deploy Output — {rn_label}', r['t4_az_out'])
 
             # Summary metrics
             mc1, mc2, mc3 = st.columns(3)
@@ -1314,18 +1326,16 @@ def _run_az_deploy(report_name):
             capture_output=True, text=True, timeout=30
         )
         if kv_result.returncode != 0:
-            lines.append(f'WARNING: Could not retrieve SQL password from Key Vault.')
+            lines.append('ERROR: Could not retrieve SQL password from Key Vault.')
             lines.append(kv_result.stderr.strip())
-            lines.append('Skipping database script execution.')
-            lines.append('\nDeployment completed (ADF only — DB scripts skipped).')
-            return True, '\n'.join(lines)
+            lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
+            return False, '\n'.join(lines)
         sql_pwd = kv_result.stdout.strip()
         lines.append('SQL password retrieved.')
     except Exception as e:
-        lines.append(f'WARNING: Key Vault error: {e}')
-        lines.append('Skipping database script execution.')
-        lines.append('\nDeployment completed (ADF only — DB scripts skipped).')
-        return True, '\n'.join(lines)
+        lines.append(f'ERROR: Key Vault error: {e}')
+        lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
+        return False, '\n'.join(lines)
 
     server_fqdn = f'{srv}.database.windows.net'
 
