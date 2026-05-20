@@ -603,12 +603,39 @@
                                     ]
                                 },
                                 {
+                                    "name": "Call_Excel_Writer",
+                                    "description": "Generic Azure Function: downloads CSV + xlsm template from Blob, writes data rows into template, saves populated xlsm back to Blob.",
+                                    "type": "WebActivity",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Copy_ReportData_To_Blob",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@pipeline().parameters.excel_writer_url",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": {
+                                            "value": "@concat('{\"report_name\":\"', pipeline().parameters.report_name, '\",\"report_date\":\"', variables('report_date'), '\"}')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
                                     "name": "Copy_Archive_File",
                                     "description": "Copy output to archive folder. Replicates: CopyFileActivity.",
                                     "type": "Copy",
                                     "dependsOn": [
                                         {
-                                            "activity": "Copy_ReportData_To_Blob",
+                                            "activity": "Call_Excel_Writer",
                                             "dependencyConditions": [
                                                 "Succeeded"
                                             ]
@@ -736,6 +763,10 @@
                     "logic_app_email_url": {
                         "type": "string",
                         "defaultValue": "https://prod-xx.region.logic.azure.com/workflows/YOUR_URL"
+                    },
+                    "excel_writer_url": {
+                        "type": "string",
+                        "defaultValue": "https://<func-app>.azurewebsites.net/api/excel_writer"
                     }
                 },
                 "variables": {

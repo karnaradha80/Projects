@@ -421,11 +421,29 @@ def build_generic_pipeline(category):
         }]
     }
 
+    call_excel_writer = {
+        'name': 'Call_Excel_Writer',
+        'description': (
+            'Generic Azure Function: downloads CSV + xlsm template from Blob, '
+            'writes data rows into template, saves populated xlsm back to Blob.'
+        ),
+        'type': 'WebActivity',
+        'dependsOn': [_dep('Copy_ReportData_To_Blob')],
+        'typeProperties': {
+            'url': _expr('@pipeline().parameters.excel_writer_url'),
+            'method': 'POST',
+            'headers': {'Content-Type': 'application/json'},
+            'body': _expr(
+                f"@concat('{{\"report_name\":\"', {rn_param}, '\",\"report_date\":\"', {date_var}, '\"}}')"
+            )
+        }
+    }
+
     copy_archive = {
         'name': 'Copy_Archive_File',
         'description': 'Copy output to archive folder. Replicates: CopyFileActivity.',
         'type': 'Copy',
-        'dependsOn': [_dep('Copy_ReportData_To_Blob')],
+        'dependsOn': [_dep('Call_Excel_Writer')],
         'typeProperties': {
             'source': {
                 'type': 'DelimitedTextSource',
@@ -530,7 +548,7 @@ def build_generic_pipeline(category):
                 "@greater(activity('Lookup_ODS_Refresh_Check').output.firstRow.row_count, 0)"
             ),
             'ifFalseActivities': [email_no_data],
-            'ifTrueActivities':  [copy_to_blob, copy_archive, email_ops, email_bi]
+            'ifTrueActivities':  [copy_to_blob, call_excel_writer, copy_archive, email_ops, email_bi]
         }
     }
 
@@ -559,6 +577,10 @@ def build_generic_pipeline(category):
                 'logic_app_email_url': {
                     'type': 'string',
                     'defaultValue': 'https://prod-xx.region.logic.azure.com/workflows/YOUR_URL'
+                },
+                'excel_writer_url': {
+                    'type': 'string',
+                    'defaultValue': 'https://<func-app>.azurewebsites.net/api/excel_writer'
                 }
             },
             'variables': {
