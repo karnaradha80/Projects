@@ -750,47 +750,6 @@
                     "No report-specific SQL embedded -- all queries stored in config.report_sql"
                 ]
             }
-        },
-        {
-            "type": "Microsoft.DataFactory/factories/triggers",
-            "apiVersion": "2018-06-01",
-            "name": "[concat(parameters('factoryName'), '/TR_BC_BIMIO_267_Daily_0600')]",
-            "dependsOn": [
-                "[variables('factoryId')]",
-                "[concat(variables('factoryId'), '/pipelines/PL_Generic_Daily')]"
-            ],
-            "properties": {
-                "description": "Schedule trigger for BC_BIMIO_267_Daily -- runs PL_Generic_Daily with report_name parameter.",
-                "runtimeState": "Stopped",
-                "type": "ScheduleTrigger",
-                "typeProperties": {
-                    "recurrence": {
-                        "frequency": "Day",
-                        "interval": 1,
-                        "startTime": "2026-01-01T06:00:00Z",
-                        "timeZone": "GMT Standard Time",
-                        "schedule": {
-                            "hours": [
-                                6
-                            ],
-                            "minutes": [
-                                0
-                            ]
-                        }
-                    }
-                },
-                "pipelines": [
-                    {
-                        "pipelineReference": {
-                            "referenceName": "PL_Generic_Daily",
-                            "type": "PipelineReference"
-                        },
-                        "parameters": {
-                            "report_name": "BC_BIMIO_267_Daily"
-                        }
-                    }
-                ]
-            }
         }
     ]
 }

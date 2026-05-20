@@ -260,12 +260,26 @@ def classify_email_groups(activities):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Category derivation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _derive_category(report_name):
+    """Return pipeline category from report name suffix, e.g. _Daily -> Daily."""
+    up = report_name.upper()
+    for suffix in ('_DAILY', '_WEEKLY', '_MONTHLY', '_HOURLY', '_QUARTERLY'):
+        if up.endswith(suffix):
+            return suffix.lstrip('_').capitalize()
+    return 'Custom'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Report metadata extractor
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_report_metadata(decoded, report_name):
     """Return dict of report-level metadata for config.report INSERT."""
     safe = re.sub(r'[^A-Za-z0-9_]', '_', report_name)
+    category = _derive_category(report_name)
 
     desc_m = re.search(r'\bDescription="([^"]{5,})"', decoded)
     description = desc_m.group(1)[:200] if desc_m else report_name
@@ -275,7 +289,8 @@ def extract_report_metadata(decoded, report_name):
 
     return {
         'report_name':        report_name,
-        'pipeline_name':      f'PL_{safe}',
+        'pipeline_name':      f'PL_Generic_{category}',
+        'report_category':    category.upper(),
         'description':        description,
         'schedule_time':      '06:00',
         'output_container':   container,
@@ -312,6 +327,7 @@ BEGIN
         [report_id]          INT          IDENTITY(1,1) NOT NULL,
         [report_name]        VARCHAR(200) NOT NULL,
         [pipeline_name]      VARCHAR(200) NOT NULL,
+        [report_category]    VARCHAR(50)  NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM',
         [description]        VARCHAR(500) NULL,
         [schedule_time]      VARCHAR(10)  NOT NULL CONSTRAINT [DF_report_schedule] DEFAULT '06:00',
         [output_container]   VARCHAR(100) NOT NULL,
@@ -324,11 +340,13 @@ BEGIN
 END
 ELSE
 BEGIN
-    -- Add template columns if upgrading from older schema version
+    -- Add columns if upgrading from older schema version
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_name')
         ALTER TABLE [config].[report] ADD [template_name] VARCHAR(500) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_blob_path')
         ALTER TABLE [config].[report] ADD [template_blob_path] VARCHAR(500) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'report_category')
+        ALTER TABLE [config].[report] ADD [report_category] VARCHAR(50) NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM';
 END
 GO
 
@@ -394,11 +412,12 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
     lines.append(f"IF NOT EXISTS (SELECT 1 FROM config.report WHERE report_name = '{_sq(rn)}')")
     lines.append(f"BEGIN")
     lines.append(f"    INSERT INTO config.report")
-    lines.append(f"        (report_name, pipeline_name, description, schedule_time,")
+    lines.append(f"        (report_name, pipeline_name, report_category, description, schedule_time,")
     lines.append(f"         output_container, template_name, template_blob_path, is_active)")
     lines.append(f"    VALUES (")
     lines.append(f"        '{_sq(rn)}',")
     lines.append(f"        '{_sq(meta['pipeline_name'])}',")
+    lines.append(f"        '{_sq(meta['report_category'])}',")
     lines.append(f"        '{_sq(meta['description'])}',")
     lines.append(f"        '{meta['schedule_time']}',")
     lines.append(f"        '{meta['output_container']}',")
@@ -411,14 +430,14 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
     lines.append(f"END")
     lines.append(f"ELSE")
     lines.append(f"BEGIN")
-    lines.append(f"    -- Update template info if it was added later")
+    lines.append(f"    -- Update pipeline_name and category to generic pattern if re-run")
+    lines.append(f"    UPDATE config.report")
+    lines.append(f"    SET    pipeline_name      = '{_sq(meta['pipeline_name'])}',")
+    lines.append(f"           report_category    = '{_sq(meta['report_category'])}'")
     if meta['template_name']:
-        lines.append(f"    UPDATE config.report")
-        lines.append(f"    SET    template_name      = '{_sq(meta['template_name'])}',")
-        lines.append(f"           template_blob_path = '{_sq(meta['template_blob_path'])}'")
-        lines.append(f"    WHERE  report_name = '{_sq(rn)}';")
-    else:
-        lines.append(f"    -- No template detected in sanitised XML; skipping update.")
+        lines.append(f"          ,template_name      = '{_sq(meta['template_name'])}'")
+        lines.append(f"          ,template_blob_path = '{_sq(meta['template_blob_path'])}'")
+    lines.append(f"    WHERE  report_name = '{_sq(rn)}';")
     lines.append(f"END")
     lines.append(f"SET @report_id = (SELECT report_id FROM config.report WHERE report_name = '{_sq(rn)}');")
     lines.append("")
@@ -542,7 +561,8 @@ def generate_config(report_name, verbose=False, poc=False):
     print(f'\nTool 3 -- Config Schema + Data Setup')
     print(f'Report    : {report_name}')
     print(f'Mode      : {mode_label}')
-    print(f'Pipeline  : {meta["pipeline_name"]}')
+    print(f'Category  : {meta["report_category"]}')
+    print(f'Pipeline  : {meta["pipeline_name"]}  (generic -- shared across all {meta["report_category"]} reports)')
     print(f'Container : {meta["output_container"]}')
     print(f'Schedule  : {meta["schedule_time"]}')
     print(f'Template  : {meta["template_name"] or "(not detected)"}')

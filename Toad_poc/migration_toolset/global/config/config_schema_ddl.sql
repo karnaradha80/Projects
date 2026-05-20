@@ -15,6 +15,7 @@ BEGIN
         [report_id]          INT          IDENTITY(1,1) NOT NULL,
         [report_name]        VARCHAR(200) NOT NULL,
         [pipeline_name]      VARCHAR(200) NOT NULL,
+        [report_category]    VARCHAR(50)  NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM',
         [description]        VARCHAR(500) NULL,
         [schedule_time]      VARCHAR(10)  NOT NULL CONSTRAINT [DF_report_schedule] DEFAULT '06:00',
         [output_container]   VARCHAR(100) NOT NULL,
@@ -27,11 +28,13 @@ BEGIN
 END
 ELSE
 BEGIN
-    -- Add template columns if upgrading from older schema version
+    -- Add columns if upgrading from older schema version
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_name')
         ALTER TABLE [config].[report] ADD [template_name] VARCHAR(500) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_blob_path')
         ALTER TABLE [config].[report] ADD [template_blob_path] VARCHAR(500) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'report_category')
+        ALTER TABLE [config].[report] ADD [report_category] VARCHAR(50) NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM';
 END
 GO
 

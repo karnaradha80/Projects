@@ -38,7 +38,7 @@ REPORTS_DIR = os.path.join(BASE_DIR, 'reports')
 
 PLACEHOLDER_RE = re.compile(r'^<.+>$')
 
-SHARED_RESOURCE_TYPES = {'linkedservices', 'factories'}
+SHARED_RESOURCE_TYPES = {'linkedservices', 'factories', 'datasets', 'pipelines'}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,8 +248,8 @@ def generate_script(title, rg, location, template_path, params_path, deployment_
 def write_split_templates(arm_data, params_data, adf_dir, report_name):
     """
     Write two ARM templates:
-      arm_template_bootstrap.json  -- factory + linked services (deploy once)
-      arm_template_report.json     -- datasets + pipeline (deploy per report)
+      arm_template_bootstrap.json  -- factory + LS + datasets + generic pipeline (deploy once per category)
+      arm_template_report.json     -- per-report schedule trigger only (deploy per report)
 
     Both use the same parameters file.
     Returns (bootstrap_path, report_path).
@@ -299,13 +299,13 @@ def build_checklist(report_name, filled, unfilled, arm_data, rg):
 
     lines.append('RESOURCES TO DEPLOY')
     lines.append('-' * 40)
-    lines.append(f'  Bootstrap (run once per environment):')
+    lines.append(f'  Bootstrap (run once per category -- generic pipeline):')
     for r in shared_res:
         rtype = r['type'].split('/')[-1]
         rname = re.search(r"'([^']+)'$", r.get('name', '')).group(1) if re.search(r"'([^']+)'$", r.get('name', '')) else r.get('name', '')
         lines.append(f'    {rtype:<20}  {rname}')
     lines.append('')
-    lines.append(f'  Per-report (run for each report):')
+    lines.append(f'  Per-report (run for each report -- trigger only):')
     for r in report_res:
         rtype = r['type'].split('/')[-1]
         rname = re.search(r"'([^']+)'$", r.get('name', '')).group(1) if re.search(r"'([^']+)'$", r.get('name', '')) else r.get('name', '')
@@ -315,16 +315,16 @@ def build_checklist(report_name, filled, unfilled, arm_data, rg):
     lines.append('DEPLOYMENT SCRIPTS')
     lines.append('-' * 40)
     lines.append(f'  1. reports/{report_name}/adf/deploy/deploy_bootstrap.ps1')
-    lines.append(f'     (or .sh)   -- run once for the ADF factory + linked services')
+    lines.append(f'     (or .sh)   -- run once per category: factory + LS + datasets + generic pipeline')
     lines.append(f'  2. reports/{report_name}/adf/deploy/deploy_{safe}.ps1')
-    lines.append(f'     (or .sh)   -- run for this report\'s datasets + pipeline')
+    lines.append(f'     (or .sh)   -- run per report: schedule trigger with report_name parameter')
     lines.append('')
 
     lines.append('RUN ORDER')
     lines.append('-' * 40)
     lines.append('  Step 1  az login  (or set AZURE_CLIENT_ID / SECRET / TENANT env vars)')
-    lines.append(f'  Step 2  Run deploy_bootstrap.ps1  (first report only)')
-    lines.append(f'  Step 3  Run deploy_{safe}.ps1  (each report)')
+    lines.append(f'  Step 2  Run deploy_bootstrap.ps1  (once per category -- deploys PL_Generic_*)')
+    lines.append(f'  Step 3  Run deploy_{safe}.ps1  (per report -- deploys trigger only)')
     lines.append('')
     lines.append(f'  Resource group: {rg}')
     lines.append(f'  ADF factory   : adf-toad-poc  (from parameters)')
