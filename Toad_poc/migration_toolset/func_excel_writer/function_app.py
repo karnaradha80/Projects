@@ -4,11 +4,11 @@ func_excel_writer — Generic Excel Template Writer
 Azure Function (HTTP trigger) called from the ADF generic pipeline.
 
 Receives report_name + report_date, then:
-  1. Reads template_blob_path and output_container from config.report
-  2. Downloads the .xlsm template from Blob Storage (templates/ container)
-  3. Downloads the CSV data written by Copy_ReportData_To_Blob
+  1. Reads template_blob_path, template_container, output_container from config.report
+  2. Downloads the .xlsm template from toad-poc-reports/templates/ (shared container)
+  3. Downloads the CSV data written by Copy_ReportData_To_Blob (per-report container)
   4. Writes CSV data rows into the template's data sheet (keeps headers + VBA)
-  5. Saves the populated .xlsm back to Blob as the report output file
+  5. Saves the populated .xlsm to {output_container}/output_Reports/ (per-report container)
 
 Fully generic — zero report-specific logic.
 All report configuration comes from config.report at runtime.
@@ -35,7 +35,7 @@ import logging
 import os
 
 import openpyxl
-import pyodbc
+import pymssql
 from azure.storage.blob import BlobServiceClient
 
 app = func.FunctionApp()
@@ -47,16 +47,32 @@ logger = logging.getLogger(__name__)
 # Config DB helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _pymssql_connect():
+    """Parse ODBC-format SQL_CONNECTION_STRING and return a pymssql connection."""
+    raw = os.environ['SQL_CONNECTION_STRING']
+    parts = {k.strip(): v.strip()
+             for k, v in (p.split('=', 1) for p in raw.split(';') if '=' in p)}
+    server = parts.get('Server', parts.get('SERVER', ''))
+    server = server.replace('tcp:', '').split(',')[0]
+    return pymssql.connect(
+        server=server,
+        user=parts.get('Uid', parts.get('UID', '')),
+        password=parts.get('Pwd', parts.get('PWD', '')),
+        database=parts.get('Database', parts.get('DATABASE', '')),
+        port=1433,
+        login_timeout=30,
+    )
+
+
 def _get_report_config(report_name: str) -> dict:
-    """Read template_blob_path and output_container from config.report."""
-    conn_str = os.environ['SQL_CONNECTION_STRING']
-    with pyodbc.connect(conn_str, timeout=30) as conn:
+    """Read template_blob_path, template_container and output_container from config.report."""
+    with _pymssql_connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT template_blob_path, output_container
+            SELECT template_blob_path, template_container, output_container
             FROM   config.report
-            WHERE  report_name = ?
+            WHERE  report_name = %s
             AND    is_active   = 'Y'
             """,
             (report_name,)
@@ -66,12 +82,17 @@ def _get_report_config(report_name: str) -> dict:
     if not row:
         raise ValueError(f"Report not found in config.report: {report_name}")
 
-    template_blob_path, output_container = row
+    template_blob_path, template_container, output_container = row
     if not template_blob_path:
         raise ValueError(f"No template_blob_path configured for: {report_name}")
 
+    # Fall back to 'toad-poc-reports' if the column is NULL (older rows)
+    if not template_container:
+        template_container = 'toad-poc-reports'
+
     return {
-        'template_blob_path': template_blob_path,   # e.g. 'templates/BC_BIMIO_267_Daily/BIMIO 267...xlsm'
+        'template_blob_path': template_blob_path,    # e.g. 'templates/BIMIO 267...xlsm'
+        'template_container': template_container,    # e.g. 'toad-poc-reports'
         'output_container':   output_container,      # e.g. 'bc-bimio-267-daily'
     }
 
@@ -167,19 +188,14 @@ def excel_writer(req: func.HttpRequest) -> func.HttpResponse:
 
     try:
         # ── 1. Read config ────────────────────────────────────────────────────
-        cfg              = _get_report_config(report_name)
-        output_container = cfg['output_container']
-        template_path    = cfg['template_blob_path']   # 'templates/ReportName/file.xlsm'
-
-        # Split template_blob_path into container + blob_name
-        # Convention: first segment is the container name ('templates')
-        path_parts        = template_path.split('/', 1)
-        tmpl_container    = path_parts[0]
-        tmpl_blob_name    = path_parts[1] if len(path_parts) > 1 else template_path
+        cfg                = _get_report_config(report_name)
+        output_container   = cfg['output_container']
+        tmpl_container     = cfg['template_container']   # shared 'toad-poc-reports'
+        tmpl_blob_name     = cfg['template_blob_path']   # 'templates/file.xlsm'
 
         # ── 2. Download inputs from Blob ──────────────────────────────────────
         blob_svc      = _blob_client()
-        csv_blob_name = f"output/{report_name}_{report_date}.csv"
+        csv_blob_name = f"output_csv/{report_name}_{report_date}.csv"
 
         csv_bytes      = _download_blob(blob_svc, output_container, csv_blob_name)
         template_bytes = _download_blob(blob_svc, tmpl_container,   tmpl_blob_name)
@@ -188,7 +204,7 @@ def excel_writer(req: func.HttpRequest) -> func.HttpResponse:
         xlsm_bytes = _write_csv_into_template(template_bytes, csv_bytes)
 
         # ── 4. Upload populated xlsm ──────────────────────────────────────────
-        output_blob_name = f"output/{report_name}_{report_date}.xlsm"
+        output_blob_name = f"output_Reports/{report_name}_{report_date}.xlsm"
         _upload_blob(blob_svc, output_container, output_blob_name, xlsm_bytes)
 
         logger.info("excel_writer complete: %s / %s", output_container, output_blob_name)

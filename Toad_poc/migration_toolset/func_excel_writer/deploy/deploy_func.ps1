@@ -55,8 +55,12 @@ az account set --subscription $SUBSCRIPTION
 # ── Step 2: Create Function App ───────────────────────────────
 Write-Host "Step 2: Creating Function App (if not exists)..."
 
-$exists = az functionapp show --name $FUNC_APP --resource-group $RESOURCE_GROUP --query name -o tsv 2>$null
-if (-not $exists) {
+$prevPref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$null = az functionapp show --name $FUNC_APP --resource-group $RESOURCE_GROUP --query name -o tsv
+$funcExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevPref
+if (-not $funcExists) {
     Write-Host "  Creating $FUNC_APP ..."
     az functionapp create `
         --name              $FUNC_APP `
@@ -89,19 +93,58 @@ az keyvault set-policy `
     --object-id     $principalId `
     --secret-permissions get list
 
-# ── Step 5: Set app settings (Key Vault references) ──────────
-Write-Host "Step 5: Setting app settings via Key Vault references..."
+# ── Step 5: Ensure Key Vault secrets exist + set app settings ─
+Write-Host "Step 5: Ensuring Key Vault secrets and setting app settings..."
 
 $KV_URI = "https://$KEYVAULT.vault.azure.net/secrets"
 
-az functionapp config appsettings set `
-    --name           $FUNC_APP `
-    --resource-group $RESOURCE_GROUP `
-    --settings `
-        "SQL_CONNECTION_STRING=@Microsoft.KeyVault(SecretUri=$KV_URI/func-sql-connection-string/)" `
-        "STORAGE_CONNECTION_STRING=@Microsoft.KeyVault(SecretUri=$KV_URI/func-storage-connection-string/)" `
-        "SCM_DO_BUILD_DURING_DEPLOYMENT=true" `
-    | Out-Null
+# Create func-sql-connection-string if it doesn't exist
+$prevPref = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+$null = az keyvault secret show --vault-name $KEYVAULT --name func-sql-connection-string -o none
+$sqlSecretExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevPref
+
+if (-not $sqlSecretExists) {
+    Write-Host "  Creating func-sql-connection-string secret..."
+    $sqlPass = az keyvault secret show --vault-name $KEYVAULT --name azuresql-db-password --query value -o tsv
+    $cfg2 = Get-Content $CONFIG_PATH | ConvertFrom-Json
+    $sqlConn = "Driver={ODBC Driver 18 for SQL Server};Server=tcp:$($cfg2.sql_server).database.windows.net,1433;Database=$($cfg2.sql_database);Uid=$($cfg2.sql_admin_user);Pwd=$sqlPass;Encrypt=yes;TrustServerCertificate=no;"
+    az keyvault secret set --vault-name $KEYVAULT --name func-sql-connection-string --value $sqlConn | Out-Null
+    Write-Host "  Created: func-sql-connection-string"
+} else {
+    Write-Host "  Already exists: func-sql-connection-string"
+}
+
+# Create func-storage-connection-string if it doesn't exist
+$prevPref = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+$null = az keyvault secret show --vault-name $KEYVAULT --name func-storage-connection-string -o none
+$storSecretExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevPref
+
+if (-not $storSecretExists) {
+    Write-Host "  Creating func-storage-connection-string secret..."
+    $storKey = az keyvault secret show --vault-name $KEYVAULT --name storage-account-key --query value -o tsv
+    $cfg2 = Get-Content $CONFIG_PATH | ConvertFrom-Json
+    $storConn = "DefaultEndpointsProtocol=https;AccountName=$($cfg2.storage_account);AccountKey=$storKey;EndpointSuffix=core.windows.net"
+    az keyvault secret set --vault-name $KEYVAULT --name func-storage-connection-string --value $storConn | Out-Null
+    Write-Host "  Created: func-storage-connection-string"
+} else {
+    Write-Host "  Already exists: func-storage-connection-string"
+}
+
+# Use az rest + temp JSON file to set KV references — az.cmd strips the closing )
+# when passing @Microsoft.KeyVault(...) as a --settings argument on Windows.
+$current = az functionapp config appsettings list --name $FUNC_APP --resource-group $RESOURCE_GROUP | ConvertFrom-Json
+$dict = @{}
+foreach ($s in $current) { $dict[$s.name] = $s.value }
+$dict["SQL_CONNECTION_STRING"]     = "@Microsoft.KeyVault(SecretUri=$KV_URI/func-sql-connection-string/)"
+$dict["STORAGE_CONNECTION_STRING"] = "@Microsoft.KeyVault(SecretUri=$KV_URI/func-storage-connection-string/)"
+$dict["SCM_DO_BUILD_DURING_DEPLOYMENT"] = "true"
+$settingsJson = @{ properties = $dict } | ConvertTo-Json -Depth 3
+$settingsJson | Out-File "$env:TEMP\func_appsettings_deploy.json" -Encoding utf8
+az rest --method PUT `
+    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Web/sites/$FUNC_APP/config/appsettings?api-version=2022-03-01" `
+    --body "@$env:TEMP\func_appsettings_deploy.json" | Out-Null
 
 Write-Host "  App settings updated (Key Vault references -- no secrets in config)"
 
@@ -113,10 +156,36 @@ $ZIP_PATH = Join-Path $PSScriptRoot "func_excel_writer.zip"
 # Remove stale zip if it exists
 if (Test-Path $ZIP_PATH) { Remove-Item $ZIP_PATH }
 
-# Zip function code (exclude deploy/, __pycache__, .venv, local.settings.json)
-$exclude = @("deploy", "__pycache__", ".venv", ".python_packages", "local.settings.json", "*.zip")
-$files = Get-ChildItem -Path $FUNC_DIR -Exclude $exclude
-Compress-Archive -Path $files.FullName -DestinationPath $ZIP_PATH -Force
+# Install Linux x86_64 packages and zip using Python (ensures forward-slash paths in zip)
+Write-Host "  Installing Linux packages into .python_packages/..."
+$pkgDir = Join-Path $FUNC_DIR ".python_packages\lib\site-packages"
+if (Test-Path $pkgDir) { Remove-Item $pkgDir -Recurse -Force }
+New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
+pip install -r (Join-Path $FUNC_DIR "requirements.txt") `
+    --target $pkgDir `
+    --platform manylinux_2_17_x86_64 `
+    --python-version 3.11 `
+    --only-binary :all: `
+    --no-cache-dir --quiet
+
+python -c @"
+import zipfile, os
+FUNC_DIR = r'$FUNC_DIR'.replace('\\\\', '\\')
+ZIP_PATH = r'$ZIP_PATH'.replace('\\\\', '\\')
+EXCLUDE_DIRS  = {'deploy', '__pycache__', '.venv', '.git'}
+EXCLUDE_FILES = {'local.settings.json', 'test_unit.py', 'test_integration.py'}
+if os.path.exists(ZIP_PATH): os.remove(ZIP_PATH)
+with zipfile.ZipFile(ZIP_PATH, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk(FUNC_DIR):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.endswith('.zip')]
+        for fname in files:
+            if fname in EXCLUDE_FILES or fname.endswith('.zip'): continue
+            abs_path = os.path.join(root, fname)
+            arc_name = os.path.relpath(abs_path, FUNC_DIR).replace(os.sep, '/')
+            zf.write(abs_path, arc_name)
+size_mb = round(os.path.getsize(ZIP_PATH) / 1024**2, 1)
+print(f'  Zip built: {size_mb} MB')
+"@
 
 Write-Host "  Created: $ZIP_PATH"
 

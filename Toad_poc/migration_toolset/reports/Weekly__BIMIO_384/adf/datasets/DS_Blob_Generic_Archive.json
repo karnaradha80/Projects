@@ -1,0 +1,41 @@
+{
+    "name": "DS_Blob_Generic_Archive",
+    "type": "Microsoft.DataFactory/factories/datasets",
+    "properties": {
+        "description": "Report CSV archive",
+        "linkedServiceName": {
+            "referenceName": "LS_AzureBlobStorage",
+            "type": "LinkedServiceReference"
+        },
+        "parameters": {
+            "container": {
+                "type": "string"
+            },
+            "archive_file_name": {
+                "type": "string"
+            }
+        },
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "container": {
+                    "value": "@dataset().container",
+                    "type": "Expression"
+                },
+                "folderPath": "archive",
+                "fileName": {
+                    "value": "@dataset().archive_file_name",
+                    "type": "Expression"
+                }
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\"",
+            "escapeChar": "\\"
+        },
+        "schema": [],
+        "annotations": []
+    }
+}

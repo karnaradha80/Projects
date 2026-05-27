@@ -1,0 +1,28 @@
+============================================================
+BLOB UPLOAD CHECKLIST  --  Monthly_BIMIO_494
+============================================================
+
+TEMPLATE CONTAINER : toad-poc-reports  (shared)
+OUTPUT  CONTAINER  : monthly-bimio-494  (per-report)
+BLOB LAYOUT        : toad-poc-reports/templates/{filename}.xlsm
+
+EXPECTED TEMPLATES
+----------------------------------------
+  [OK] present
+    Local  : C:\Projects\Toad_poc\migration_toolset\report_templates\BIMIO 494 -  E1, E2, M1 & M2 Created Manually and YTD Enquiries - .xlsm
+    Blob   : toad-poc-reports/templates/BIMIO 494 -  E1, E2, M1 & M2 Created Manually and YTD Enquiries - .xlsm
+    Detect : via CopyFileActivity
+    Origin : \\FILESERVER\reports\path11  (sanitised UNC)
+
+STORAGE ACCOUNT
+----------------------------------------
+  [OK] sttoadpoc
+
+ACTION REQUIRED
+----------------------------------------
+UPLOAD SCRIPT
+----------------------------------------
+  reports/Monthly_BIMIO_494/blob/upload_Monthly_BIMIO_494.ps1  (or .sh)
+
+STATUS: READY TO UPLOAD
+============================================================

@@ -1,0 +1,827 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": {
+                "description": "ADF instance name"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "uksouth"
+        },
+        "azure_sql_server": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure SQL Server name"
+            }
+        },
+        "azure_sql_db": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure SQL Database name"
+            }
+        },
+        "key_vault_name": {
+            "type": "string",
+            "metadata": {
+                "description": "Key Vault name"
+            }
+        },
+        "storage_account_name": {
+            "type": "string",
+            "metadata": {
+                "description": "Blob Storage account name"
+            }
+        },
+        "logic_app_email_url": {
+            "type": "string",
+            "metadata": {
+                "description": "Logic App HTTP trigger URL"
+            }
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.DataFactory/factories",
+            "apiVersion": "2018-06-01",
+            "name": "[parameters('factoryName')]",
+            "location": "[parameters('location')]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {}
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureKeyVault')]",
+            "dependsOn": [
+                "[variables('factoryId')]"
+            ],
+            "properties": {
+                "description": "Azure Key Vault -- stores all connection secrets",
+                "type": "AzureKeyVault",
+                "typeProperties": {
+                    "baseUrl": "https://$(key_vault_name).vault.azure.net/"
+                },
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureSQL_Source')]",
+            "dependsOn": [
+                "[variables('factoryId')]"
+            ],
+            "properties": {
+                "description": "Azure SQL Server -- POC source (simulates Oracle/Redshift)",
+                "type": "AzureSqlDatabase",
+                "typeProperties": {
+                    "connectionString": "Server=tcp:$(azure_sql_server).database.windows.net,1433;Database=$(azure_sql_db);User ID=sqladmin;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;",
+                    "password": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": {
+                            "referenceName": "LS_AzureKeyVault",
+                            "type": "LinkedServiceReference"
+                        },
+                        "secretName": "azuresql-db-password"
+                    }
+                },
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/linkedservices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/LS_AzureBlobStorage')]",
+            "dependsOn": [
+                "[variables('factoryId')]"
+            ],
+            "properties": {
+                "description": "Azure Blob Storage -- report output and archive",
+                "type": "AzureBlobStorage",
+                "typeProperties": {
+                    "connectionString": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": {
+                            "referenceName": "LS_AzureKeyVault",
+                            "type": "LinkedServiceReference"
+                        },
+                        "secretName": "storage-account-key"
+                    }
+                },
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_AzureSQL_Config')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureSQL_Source')]"
+            ],
+            "properties": {
+                "description": "Azure SQL -- all dynamic queries use sqlReaderQuery override at runtime",
+                "linkedServiceName": {
+                    "referenceName": "LS_AzureSQL_Source",
+                    "type": "LinkedServiceReference"
+                },
+                "type": "AzureSqlTable",
+                "typeProperties": {
+                    "schema": "config",
+                    "table": "report"
+                },
+                "schema": [],
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_Blob_Generic_Output')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureBlobStorage')]"
+            ],
+            "properties": {
+                "description": "Report CSV output",
+                "linkedServiceName": {
+                    "referenceName": "LS_AzureBlobStorage",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "container": {
+                        "type": "string"
+                    },
+                    "file_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobStorageLocation",
+                        "container": {
+                            "value": "@dataset().container",
+                            "type": "Expression"
+                        },
+                        "folderPath": "output_csv",
+                        "fileName": {
+                            "value": "@dataset().file_name",
+                            "type": "Expression"
+                        }
+                    },
+                    "columnDelimiter": ",",
+                    "rowDelimiter": "\n",
+                    "firstRowAsHeader": true,
+                    "quoteChar": "\"",
+                    "escapeChar": "\\"
+                },
+                "schema": [],
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/DS_Blob_Generic_Archive')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/linkedservices/LS_AzureBlobStorage')]"
+            ],
+            "properties": {
+                "description": "Report CSV archive",
+                "linkedServiceName": {
+                    "referenceName": "LS_AzureBlobStorage",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "container": {
+                        "type": "string"
+                    },
+                    "archive_file_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobStorageLocation",
+                        "container": {
+                            "value": "@dataset().container",
+                            "type": "Expression"
+                        },
+                        "folderPath": "archive",
+                        "fileName": {
+                            "value": "@dataset().archive_file_name",
+                            "type": "Expression"
+                        }
+                    },
+                    "columnDelimiter": ",",
+                    "rowDelimiter": "\n",
+                    "firstRowAsHeader": true,
+                    "quoteChar": "\"",
+                    "escapeChar": "\\"
+                },
+                "schema": [],
+                "annotations": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/PL_Generic_Weekly')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/datasets/DS_AzureSQL_Config')]",
+                "[concat(variables('factoryId'), '/datasets/DS_Blob_Generic_Output')]",
+                "[concat(variables('factoryId'), '/datasets/DS_Blob_Generic_Archive')]"
+            ],
+            "properties": {
+                "description": "Generic Weekly pipeline -- parameterised by report_name. Reads SQL queries and email lists from config tables at runtime. One pipeline serves all Weekly reports.",
+                "activities": [
+                    {
+                        "name": "Lookup_Report_Config",
+                        "description": "Read report metadata (container, template) from config.report.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT output_container, template_name FROM config.report WHERE report_name = ''', pipeline().parameters.report_name, ''' AND is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:02:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        }
+                    },
+                    {
+                        "name": "Lookup_ODS_SQL",
+                        "description": "Fetch ODS check query text from config.report_sql.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT query_text FROM config.report_sql rs JOIN config.report r ON rs.report_id = r.report_id WHERE r.report_name = ''', pipeline().parameters.report_name, ''' AND rs.query_type = ''ODS_CHECK'' AND rs.is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:02:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "Lookup_Report_Config",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Lookup_ODS_Refresh_Check",
+                        "description": "Run ODS refresh check SQL loaded from config. Replicates: SelectDataActivity.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@activity('Lookup_ODS_SQL').output.firstRow.query_text",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:05:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "Lookup_ODS_SQL",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "SetVar_ReportDate",
+                        "description": "Set yesterday's date as report_date.",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "Lookup_ODS_Refresh_Check",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "typeProperties": {
+                            "variableName": "report_date",
+                            "value": {
+                                "value": "@formatDateTime(addDays(utcNow(), -1), 'dd.MM.yyyy')",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Lookup_Main_SQL",
+                        "description": "Fetch report main query text from config.report_sql.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT query_text FROM config.report_sql rs JOIN config.report r ON rs.report_id = r.report_id WHERE r.report_name = ''', pipeline().parameters.report_name, ''' AND rs.query_type = ''REPORT_MAIN'' AND rs.is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:02:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "SetVar_ReportDate",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Lookup_Ops_Email",
+                        "description": "Load OPERATIONS TO email list from config.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT STRING_AGG(re.email_address, '';'') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = ''', pipeline().parameters.report_name, ''' AND re.recipient_group = ''OPERATIONS'' AND re.email_type = ''TO'' AND re.is_active = ''Y'' AND r.is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:01:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "SetVar_ReportDate",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Lookup_BI_Email",
+                        "description": "Load BI_TEAM BCC email list from config.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT STRING_AGG(re.email_address, '';'') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = ''', pipeline().parameters.report_name, ''' AND re.recipient_group = ''BI_TEAM'' AND re.email_type = ''BCC'' AND re.is_active = ''Y'' AND r.is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:01:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "SetVar_ReportDate",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Lookup_Alert_Email",
+                        "description": "Load ALERT_ONLY CC email list from config.",
+                        "type": "Lookup",
+                        "policy": {
+                            "timeout": "0.00:05:00",
+                            "retry": 1,
+                            "retryIntervalInSeconds": 30
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "AzureSqlSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT STRING_AGG(re.email_address, '';'') AS email_list FROM config.report_email re JOIN config.report r ON re.report_id = r.report_id WHERE r.report_name = ''', pipeline().parameters.report_name, ''' AND re.recipient_group = ''ALERT_ONLY'' AND re.email_type = ''CC'' AND re.is_active = ''Y'' AND r.is_active = ''Y''')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "00:01:00"
+                            },
+                            "dataset": {
+                                "referenceName": "DS_AzureSQL_Config",
+                                "type": "DatasetReference"
+                            },
+                            "firstRowOnly": true
+                        },
+                        "dependsOn": [
+                            {
+                                "activity": "SetVar_ReportDate",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "If_ODS_Refreshed",
+                        "description": "Branch on ODS refresh check result. Replicates: VariableIfElseActivity.",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "Lookup_Ops_Email",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            },
+                            {
+                                "activity": "Lookup_BI_Email",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            },
+                            {
+                                "activity": "Lookup_Alert_Email",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            },
+                            {
+                                "activity": "Lookup_Main_SQL",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@greater(activity('Lookup_ODS_Refresh_Check').output.firstRow.row_count, 0)",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "Email_ODS_Not_Refreshed",
+                                    "description": "Alert email when ODS not ready. Replicates: Email_2 SendEmailActivity.",
+                                    "type": "WebActivity",
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@pipeline().parameters.logic_app_email_url",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": {
+                                            "value": "@concat('{\"subject\":\"', pipeline().parameters.report_name, ' - ODS Not Refreshed: ', variables('report_date'), '\"', ',\"to\":\"', activity('Lookup_Ops_Email').output.firstRow.email_list, '\"', ',\"cc\":\"', activity('Lookup_Alert_Email').output.firstRow.email_list, '\"', ',\"body\":\"ODS data has not been refreshed. Report not generated.\"}')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ],
+                            "ifTrueActivities": [
+                                {
+                                    "name": "Copy_ReportData_To_Blob",
+                                    "description": "Execute main report SQL from config, export to Blob CSV. Replicates: SelectToExcelActivity.",
+                                    "type": "Copy",
+                                    "policy": {
+                                        "timeout": "0.01:00:00",
+                                        "retry": 1,
+                                        "retryIntervalInSeconds": 30
+                                    },
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "AzureSqlSource",
+                                            "sqlReaderQuery": {
+                                                "value": "@activity('Lookup_Main_SQL').output.firstRow.query_text",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "00:30:00"
+                                        },
+                                        "sink": {
+                                            "type": "DelimitedTextSink",
+                                            "storeSettings": {
+                                                "type": "AzureBlobStorageWriteSettings"
+                                            },
+                                            "formatSettings": {
+                                                "type": "DelimitedTextWriteSettings",
+                                                "quoteAllText": true,
+                                                "fileExtension": ".csv"
+                                            }
+                                        },
+                                        "enableStaging": false
+                                    },
+                                    "inputs": [
+                                        {
+                                            "referenceName": "DS_AzureSQL_Config",
+                                            "type": "DatasetReference"
+                                        }
+                                    ],
+                                    "outputs": [
+                                        {
+                                            "referenceName": "DS_Blob_Generic_Output",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "container": {
+                                                    "value": "@activity('Lookup_Report_Config').output.firstRow.output_container",
+                                                    "type": "Expression"
+                                                },
+                                                "file_name": {
+                                                    "value": "@concat(pipeline().parameters.report_name, '_', variables('report_date'), '.csv')",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "Call_Excel_Writer",
+                                    "description": "Generic Azure Function: downloads CSV + xlsm template from Blob, writes data rows into template, saves populated xlsm back to Blob.",
+                                    "type": "WebActivity",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Copy_ReportData_To_Blob",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@pipeline().parameters.excel_writer_url",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": {
+                                            "value": "@concat('{\"report_name\":\"', pipeline().parameters.report_name, '\",\"report_date\":\"', variables('report_date'), '\"}')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "Copy_Archive_File",
+                                    "description": "Copy output to archive folder. Replicates: CopyFileActivity.",
+                                    "type": "Copy",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Call_Excel_Writer",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "DelimitedTextSource",
+                                            "storeSettings": {
+                                                "type": "AzureBlobStorageReadSettings"
+                                            },
+                                            "formatSettings": {
+                                                "type": "DelimitedTextReadSettings"
+                                            }
+                                        },
+                                        "sink": {
+                                            "type": "DelimitedTextSink",
+                                            "storeSettings": {
+                                                "type": "AzureBlobStorageWriteSettings"
+                                            },
+                                            "formatSettings": {
+                                                "type": "DelimitedTextWriteSettings",
+                                                "quoteAllText": true,
+                                                "fileExtension": ".csv"
+                                            }
+                                        },
+                                        "enableStaging": false
+                                    },
+                                    "inputs": [
+                                        {
+                                            "referenceName": "DS_Blob_Generic_Output",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "container": {
+                                                    "value": "@activity('Lookup_Report_Config').output.firstRow.output_container",
+                                                    "type": "Expression"
+                                                },
+                                                "file_name": {
+                                                    "value": "@concat(pipeline().parameters.report_name, '_', variables('report_date'), '.csv')",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ],
+                                    "outputs": [
+                                        {
+                                            "referenceName": "DS_Blob_Generic_Archive",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "container": {
+                                                    "value": "@activity('Lookup_Report_Config').output.firstRow.output_container",
+                                                    "type": "Expression"
+                                                },
+                                                "archive_file_name": {
+                                                    "value": "@concat(pipeline().parameters.report_name, '_For_', variables('report_date'), '.csv')",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "Email_Report_To_Operations",
+                                    "description": "Send report email to Operations. Replicates: Email_1 SendEmailActivity.",
+                                    "type": "WebActivity",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Copy_Archive_File",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@pipeline().parameters.logic_app_email_url",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": {
+                                            "value": "@concat('{\"subject\":\"', pipeline().parameters.report_name, ' - Report: ', variables('report_date'), '\"', ',\"to\":\"', activity('Lookup_Ops_Email').output.firstRow.email_list, '\"', ',\"cc\":\"', activity('Lookup_Alert_Email').output.firstRow.email_list, '\"', ',\"bcc\":\"', activity('Lookup_BI_Email').output.firstRow.email_list, '\"', ',\"body\":\"Report attached.\"}')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "Email_Confirmation_To_BI_Team",
+                                    "description": "Send confirmation to BI team. Replicates: Email_3 SendEmailActivity.",
+                                    "type": "WebActivity",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Email_Report_To_Operations",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@pipeline().parameters.logic_app_email_url",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content-Type": "application/json"
+                                        },
+                                        "body": {
+                                            "value": "@concat('{\"subject\":\"', pipeline().parameters.report_name, ' - Pipeline Complete: ', variables('report_date'), '\"', ',\"to\":\"', activity('Lookup_BI_Email').output.firstRow.email_list, '\"', ',\"body\":\"Pipeline completed successfully.\"}')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "parameters": {
+                    "report_name": {
+                        "type": "string",
+                        "defaultValue": ""
+                    },
+                    "logic_app_email_url": {
+                        "type": "string",
+                        "defaultValue": "https://prod-xx.region.logic.azure.com/workflows/YOUR_URL"
+                    },
+                    "excel_writer_url": {
+                        "type": "string",
+                        "defaultValue": "https://<func-app>.azurewebsites.net/api/excel_writer"
+                    }
+                },
+                "variables": {
+                    "report_date": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [
+                    "Generated: 2026-05-27",
+                    "Category: Weekly",
+                    "Generic pipeline: reads SQL + email config from DB at runtime",
+                    "No report-specific SQL embedded -- all queries stored in config.report_sql"
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/triggers",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/TR_Weekly__BIMIO_384_0600')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/pipelines/PL_Generic_Weekly')]"
+            ],
+            "properties": {
+                "description": "Schedule trigger for Weekly__BIMIO_384 -- runs PL_Generic_Weekly with report_name parameter.",
+                "runtimeState": "Stopped",
+                "type": "ScheduleTrigger",
+                "typeProperties": {
+                    "recurrence": {
+                        "frequency": "Day",
+                        "interval": 1,
+                        "startTime": "2026-01-01T06:00:00Z",
+                        "timeZone": "GMT Standard Time",
+                        "schedule": {
+                            "hours": [
+                                6
+                            ],
+                            "minutes": [
+                                0
+                            ]
+                        }
+                    }
+                },
+                "pipelines": [
+                    {
+                        "pipelineReference": {
+                            "referenceName": "PL_Generic_Weekly",
+                            "type": "PipelineReference"
+                        },
+                        "parameters": {
+                            "report_name": "Weekly__BIMIO_384"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

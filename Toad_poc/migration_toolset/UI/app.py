@@ -6,6 +6,7 @@ Run: streamlit run app.py  (from migration_toolset/UI/ directory)
 import contextlib
 import csv
 import io
+import json
 import os
 import sys
 
@@ -26,7 +27,9 @@ if TOOLS_DIR not in sys.path:
 
 INPUT_DIR   = os.path.join(BASE_DIR, 'input')
 REPORTS_DIR = os.path.join(BASE_DIR, 'reports')
-GLOBAL_DIR  = os.path.join(BASE_DIR, 'global')
+GLOBAL_DIR       = os.path.join(BASE_DIR, 'global')
+FUNC_WRITER_DIR  = os.path.join(BASE_DIR, 'func_excel_writer')
+UI_DIR           = os.path.dirname(os.path.abspath(__file__))
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -496,7 +499,45 @@ def _step_status(report_name):
         3: os.path.exists(os.path.join(r, 'config', f'{report_name}_config_data.sql')),
         4: os.path.exists(os.path.join(r, 'adf', 'deploy', 'deployment_checklist.txt')),
         5: os.path.exists(os.path.join(r, 'blob', 'blob_checklist.txt')),
+        6: _func_url_is_set(report_name),
     }
+
+
+def _func_url_is_set(report_name):
+    """Return True if excel_writer_url has been updated from its placeholder in the ARM template."""
+    import json as _json
+    arm_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
+    if not os.path.exists(arm_path):
+        return False
+    try:
+        with open(arm_path, encoding='utf-8') as f:
+            arm = _json.load(f)
+        for res in arm.get('resources', []):
+            params = res.get('properties', {}).get('parameters', {})
+            if 'excel_writer_url' in params:
+                val = params['excel_writer_url'].get('defaultValue', '')
+                return bool(val) and '<' not in val and val.startswith('https://')
+    except Exception:
+        pass
+    return False
+
+
+def _get_excel_writer_url(report_name):
+    """Return the current excel_writer_url defaultValue from the ARM template, or ''."""
+    import json as _json
+    arm_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
+    if not os.path.exists(arm_path):
+        return ''
+    try:
+        with open(arm_path, encoding='utf-8') as f:
+            arm = _json.load(f)
+        for res in arm.get('resources', []):
+            params = res.get('properties', {}).get('parameters', {})
+            if 'excel_writer_url' in params:
+                return params['excel_writer_url'].get('defaultValue', '')
+    except Exception:
+        pass
+    return ''
 
 
 def _existing_reports():
@@ -552,8 +593,10 @@ def _clear_from_step(report_name, from_step):
         3: ['tool3_output', 'tool3_ok'],
         4: ['tool4_output', 'tool4_ok', 'tool4_az_output', 'tool4_az_ok'],
         5: ['tool5_output', 'tool5_ok'],
+        6: ['tool6_deploy_output', 'tool6_deploy_ok', 'tool6_test_output', 'tool6_test_ok',
+            'tool6_pre_test_output', 'tool6_pre_test_ok', 'tool6_pre_test_url', 'tool6_pre_test_saved'],
     }
-    for step in range(from_step, 6):
+    for step in range(from_step, 7):
         for d in STEP_DIRS.get(step, []):
             if os.path.exists(d):
                 shutil.rmtree(d)
@@ -602,8 +645,296 @@ def _badge(done):
     return f'<span class="step-badge {cls}">{text}</span>'
 
 
-def _run_az_deploy(report_name):
-    import subprocess, json as _json, shutil
+def _get_clear_all_counts():
+    """Return dict of current resource counts from SQL + ADF. Returns None on config error."""
+    import subprocess
+    import shutil
+    import json as _json
+    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return None
+    with open(cfg_path, encoding='utf-8') as f:
+        cfg = _json.load(f)
+    counts = {}
+    # SQL counts via az CLI (avoids needing pymssql installed in UI env)
+    try:
+        sql_pass = subprocess.run(
+            [AZ, 'keyvault', 'secret', 'show',
+             '--vault-name', cfg['keyvault_name'],
+             '--name', 'azuresql-db-password', '--query', 'value', '-o', 'tsv'],
+            capture_output=True, text=True, timeout=30
+        ).stdout.strip()
+        import pymssql as _mssql
+        conn = _mssql.connect(
+            server=f"{cfg['sql_server']}.database.windows.net",
+            user=cfg['sql_admin_user'], password=sql_pass,
+            database=cfg['sql_database'], port=1433, login_timeout=15)
+        cur = conn.cursor()
+        for tbl in ('config.report', 'config.report_sql', 'config.report_email'):
+            try:
+                cur.execute(f'SELECT COUNT(*) FROM {tbl}')
+                counts[tbl] = cur.fetchone()[0]
+            except Exception:
+                counts[tbl] = '?'
+        conn.close()
+    except Exception:
+        counts['config.report'] = counts['config.report_sql'] = counts['config.report_email'] = '?'
+    # ADF counts
+    rg  = cfg['resource_group']
+    adf = cfg['adf_name']
+    for label, args in [
+        ('adf_pipelines',       ['datafactory', 'pipeline',       'list']),
+        ('adf_triggers',        ['datafactory', 'trigger',        'list']),
+        ('adf_datasets',        ['datafactory', 'dataset',        'list']),
+        ('adf_linked_services', ['datafactory', 'linked-service', 'list']),
+    ]:
+        try:
+            result = subprocess.run(
+                [AZ] + args + ['--factory-name', adf, '--resource-group', rg],
+                capture_output=True, text=True, timeout=30)
+            counts[label] = len(_json.loads(result.stdout)) if result.returncode == 0 else '?'
+        except Exception:
+            counts[label] = '?'
+    return counts
+
+
+def _run_clear_all():
+    """Delete all SQL config rows and all ADF resources. Returns (ok, log)."""
+    import subprocess
+    import shutil
+    import json as _json
+    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return False, 'poc_azure_config.json not found in global/.'
+    with open(cfg_path, encoding='utf-8') as f:
+        cfg = _json.load(f)
+    rg  = cfg['resource_group']
+    adf = cfg['adf_name']
+    lines = []
+
+    # ── SQL: delete config rows ──────────────────────────────────────────────
+    lines.append('── SQL Config ──────────────────────────────')
+    try:
+        sql_pass = subprocess.run(
+            [AZ, 'keyvault', 'secret', 'show',
+             '--vault-name', cfg['keyvault_name'],
+             '--name', 'azuresql-db-password', '--query', 'value', '-o', 'tsv'],
+            capture_output=True, text=True, timeout=30
+        ).stdout.strip()
+        import pymssql as _mssql
+        conn = _mssql.connect(
+            server=f"{cfg['sql_server']}.database.windows.net",
+            user=cfg['sql_admin_user'], password=sql_pass,
+            database=cfg['sql_database'], port=1433, login_timeout=15)
+        cur = conn.cursor()
+        for tbl in ('config.report_email', 'config.report_sql', 'config.report'):
+            cur.execute(f'DELETE FROM {tbl}')
+            lines.append(f'  DELETE {tbl}: {cur.rowcount} rows')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        lines.append(f'  ERROR: {e}')
+        return False, '\n'.join(lines)
+
+    # ── ADF: stop + delete triggers ──────────────────────────────────────────
+    lines.append('')
+    lines.append('── ADF Triggers ────────────────────────────')
+    try:
+        r = subprocess.run([AZ, 'datafactory', 'trigger', 'list',
+                            '--factory-name', adf, '--resource-group', rg],
+                           capture_output=True, text=True, timeout=30)
+        triggers = [t['name'] for t in _json.loads(r.stdout)] if r.returncode == 0 else []
+        for name in triggers:
+            subprocess.run([AZ, 'datafactory', 'trigger', 'stop',
+                            '--factory-name', adf, '--resource-group', rg, '--name', name],
+                           capture_output=True, text=True, timeout=60)
+            subprocess.run([AZ, 'datafactory', 'trigger', 'delete',
+                            '--factory-name', adf, '--resource-group', rg, '--name', name, '--yes'],
+                           capture_output=True, text=True, timeout=30)
+            lines.append(f'  Deleted: {name}')
+        if not triggers:
+            lines.append('  (none)')
+    except Exception as e:
+        lines.append(f'  ERROR: {e}')
+
+    # ── ADF: delete pipelines, datasets, linked services ────────────────────
+    for label, resource in [('Pipelines', 'pipeline'), ('Datasets', 'dataset'),
+                             ('Linked Services', 'linked-service')]:
+        lines.append('')
+        lines.append(f'── ADF {label} ─────────────────────────────')
+        try:
+            r = subprocess.run([AZ, 'datafactory', resource, 'list',
+                                '--factory-name', adf, '--resource-group', rg],
+                               capture_output=True, text=True, timeout=30)
+            items = [i['name'] for i in _json.loads(r.stdout)] if r.returncode == 0 else []
+            for name in items:
+                subprocess.run([AZ, 'datafactory', resource, 'delete',
+                                '--factory-name', adf, '--resource-group', rg,
+                                '--name', name, '--yes'],
+                               capture_output=True, text=True, timeout=30)
+                lines.append(f'  Deleted: {name}')
+            if not items:
+                lines.append('  (none)')
+        except Exception as e:
+            lines.append(f'  ERROR: {e}')
+
+    lines.append('')
+    lines.append('── Done ────────────────────────────────────')
+    return True, '\n'.join(lines)
+
+
+def _run_disable_reports(report_names):
+    """Set is_active = 'N' in SQL and stop ADF trigger for each report."""
+    import subprocess, shutil, json as _json, re as _re
+    AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return False, 'poc_azure_config.json not found.'
+    with open(cfg_path, encoding='utf-8') as f:
+        cfg = _json.load(f)
+    rg = cfg['resource_group']
+    adf = cfg['adf_name']
+    lines = []
+
+    lines.append('── SQL: disable reports ────────────────────')
+    try:
+        sql_pass = subprocess.run(
+            [AZ, 'keyvault', 'secret', 'show', '--vault-name', cfg['keyvault_name'],
+             '--name', 'azuresql-db-password', '--query', 'value', '-o', 'tsv'],
+            capture_output=True, text=True, timeout=30
+        ).stdout.strip()
+        import pymssql as _mssql
+        conn = _mssql.connect(
+            server=f"{cfg['sql_server']}.database.windows.net",
+            user=cfg['sql_admin_user'], password=sql_pass,
+            database=cfg['sql_database'], port=1433, login_timeout=15)
+        cur = conn.cursor()
+        for rn in report_names:
+            cur.execute("UPDATE config.report SET is_active = 'N' WHERE report_name = %s", (rn,))
+            lines.append(f'  {rn}: {cur.rowcount} row(s) set inactive')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        lines.append(f'  SQL ERROR: {e}')
+        return False, '\n'.join(lines)
+
+    lines.append('')
+    lines.append('── ADF: stop triggers ──────────────────────')
+    for rn in report_names:
+        safe = _re.sub(r'[^A-Za-z0-9_]', '_', rn)
+        trig = f'TR_{safe}_0600'
+        r = subprocess.run([AZ, 'datafactory', 'trigger', 'stop',
+                            '--factory-name', adf, '--resource-group', rg, '--name', trig],
+                           capture_output=True, text=True, timeout=60)
+        lines.append(f'  {trig}: {"stopped" if r.returncode == 0 else r.stderr.strip() or "not found"}')
+
+    lines.append('')
+    lines.append('── Done ────────────────────────────────────')
+    return True, '\n'.join(lines)
+
+
+def _run_func_deploy():
+    """Run deploy_func.ps1 to deploy the Excel Writer Azure Function."""
+    import subprocess
+    script_path = os.path.join(FUNC_WRITER_DIR, 'deploy', 'deploy_func.ps1')
+    if not os.path.exists(script_path):
+        return False, 'deploy_func.ps1 not found in func_excel_writer/deploy/'
+    cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+    if not os.path.exists(cfg_path):
+        return False, 'poc_azure_config.json not found in global/'
+    try:
+        result = subprocess.run(
+            ['powershell', '-ExecutionPolicy', 'Bypass', '-File', script_path],
+            capture_output=True, text=True, timeout=360,
+            cwd=os.path.join(FUNC_WRITER_DIR, 'deploy')
+        )
+        output = (result.stdout or '') + ('\n' + result.stderr.strip() if result.stderr.strip() else '')
+        return result.returncode == 0, output.strip()
+    except FileNotFoundError:
+        return False, 'PowerShell not found — ensure PowerShell is installed and on PATH.'
+    except subprocess.TimeoutExpired:
+        return False, 'Deployment timed out after 6 minutes.'
+
+
+def _run_unit_tests():
+    """Run test_unit.py inside func_excel_writer/ using pytest or unittest."""
+    import subprocess
+    test_path = os.path.join(FUNC_WRITER_DIR, 'test_unit.py')
+    if not os.path.exists(test_path):
+        return False, 'test_unit.py not found in func_excel_writer/'
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pytest', test_path, '-v', '--tb=short', '--no-header'],
+            capture_output=True, text=True, timeout=60,
+            cwd=FUNC_WRITER_DIR
+        )
+        output = (result.stdout or '') + ('\n' + result.stderr.strip() if result.stderr.strip() else '')
+        return result.returncode == 0, output.strip()
+    except Exception:
+        # Fallback to unittest if pytest is not installed
+        try:
+            result = subprocess.run(
+                [sys.executable, test_path],
+                capture_output=True, text=True, timeout=60,
+                cwd=FUNC_WRITER_DIR
+            )
+            output = (result.stdout or '') + ('\n' + result.stderr.strip() if result.stderr.strip() else '')
+            return result.returncode == 0, output.strip()
+        except subprocess.TimeoutExpired:
+            return False, 'Unit tests timed out.'
+        except Exception as e:
+            return False, f'Error running tests: {e}'
+
+
+def _update_excel_writer_url_in_obj(obj, url):
+    """Recursively replace excel_writer_url defaultValue in a JSON object. Returns True if any change was made."""
+    changed = False
+    if isinstance(obj, dict):
+        if 'excel_writer_url' in obj and isinstance(obj['excel_writer_url'], dict):
+            if 'defaultValue' in obj['excel_writer_url']:
+                obj['excel_writer_url']['defaultValue'] = url
+                changed = True
+        for v in obj.values():
+            if _update_excel_writer_url_in_obj(v, url):
+                changed = True
+    elif isinstance(obj, list):
+        for item in obj:
+            if _update_excel_writer_url_in_obj(item, url):
+                changed = True
+    return changed
+
+
+def _save_excel_writer_url(report_name, url):
+    """Update excel_writer_url defaultValue in ARM templates and pipeline JSON files. Returns (count_updated, [filenames])."""
+    import json as _json
+    import glob as _glob
+    adf_dir = os.path.join(REPORTS_DIR, report_name, 'adf')
+    candidates = [
+        os.path.join(adf_dir, 'arm_template.json'),
+        os.path.join(adf_dir, 'arm_template_bootstrap.json'),
+    ]
+    pipeline_dir = os.path.join(adf_dir, 'pipelines')
+    if os.path.exists(pipeline_dir):
+        candidates.extend(_glob.glob(os.path.join(pipeline_dir, '*.json')))
+
+    updated, names = 0, []
+    for fpath in candidates:
+        if not os.path.exists(fpath):
+            continue
+        with open(fpath, encoding='utf-8') as f:
+            data = _json.load(f)
+        if _update_excel_writer_url_in_obj(data, url):
+            with open(fpath, 'w', encoding='utf-8') as f:
+                _json.dump(data, f, indent=4)
+            updated += 1
+            names.append(os.path.basename(fpath))
+    return updated, names
+
+
+def _run_az_deploy(report_name, deploy_func_app=False):
+    import subprocess, json as _json, shutil, re as _re, os as _os
 
     AZ = shutil.which('az') or r'C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd'
 
@@ -643,6 +974,101 @@ def _run_az_deploy(report_name):
 
     lines = []
 
+    # ── Phase 0: Excel Writer function deployment (optional) ─────────────────
+    if deploy_func_app:
+        lines.append('═' * 60)
+        lines.append('PHASE 0 — Excel Writer Function Deployment')
+        lines.append('═' * 60)
+
+        func_script = os.path.join(FUNC_WRITER_DIR, 'deploy', 'deploy_func.ps1')
+        if not os.path.exists(func_script):
+            lines.append('SKIP — deploy_func.ps1 not found in func_excel_writer/deploy/')
+        else:
+            lines.append('\n>> Running deploy_func.ps1 ...')
+            try:
+                func_result = subprocess.run(
+                    ['powershell', '-ExecutionPolicy', 'Bypass', '-File', func_script],
+                    capture_output=True, text=True, timeout=360,
+                    cwd=os.path.join(FUNC_WRITER_DIR, 'deploy')
+                )
+                if func_result.stdout:
+                    lines.append(func_result.stdout.strip())
+                if func_result.stderr.strip():
+                    lines.append(func_result.stderr.strip())
+
+                if func_result.returncode == 0:
+                    url_match = _re.search(
+                        r'https://[^\s]+/api/excel_writer[^\s]*',
+                        func_result.stdout
+                    )
+                    if url_match:
+                        func_url = url_match.group(0).rstrip(')')
+                        lines.append(f'\n  Function URL: {func_url}')
+                        n, names = _save_excel_writer_url(report_name, func_url)
+                        if n:
+                            lines.append(f'  excel_writer_url saved to {n} ARM template file(s).')
+                    else:
+                        lines.append('  WARNING: Function deployed but URL could not be parsed from output.')
+                        lines.append('  Enter it manually in Tab 6 — Excel Writer.')
+                else:
+                    lines.append(f'  ERROR: Function deployment failed (exit {func_result.returncode})')
+                    lines.append('  Continuing with ADF deployment...')
+            except FileNotFoundError:
+                lines.append('  ERROR: PowerShell not found — function deployment skipped.')
+            except subprocess.TimeoutExpired:
+                lines.append('  ERROR: Function deployment timed out after 6 minutes — skipping.')
+
+        lines.append('\nPhase 0 complete.')
+        lines.append('')
+
+    # ── Pre-deployment: fill parameters + substitute $(placeholders) ────────────
+    import tempfile as _tempfile
+    _PARAM_MAP = {
+        'factoryName':          cfg.get('adf_name', ''),
+        'azure_sql_server':     cfg.get('sql_server', ''),
+        'azure_sql_db':         cfg.get('sql_database', ''),
+        'key_vault_name':       cfg.get('keyvault_name', ''),
+        'storage_account_name': cfg.get('storage_account', ''),
+        # logic_app_email_url intentionally excluded — security constraint (never in config)
+    }
+
+    # 1. Fill arm_template_parameters.json with real values
+    try:
+        with open(params_path, encoding='utf-8') as _f:
+            _params_data = _json.load(_f)
+        _params_changed = False
+        for _pk, _pv in _PARAM_MAP.items():
+            if _pv and _pk in _params_data.get('parameters', {}):
+                _params_data['parameters'][_pk]['value'] = _pv
+                _params_changed = True
+        if _params_changed:
+            with open(params_path, 'w', encoding='utf-8') as _f:
+                _json.dump(_params_data, _f, indent=4)
+    except Exception as _e:
+        lines.append(f'WARNING: could not auto-fill parameters file: {_e}')
+
+    # 2. Substitute $(placeholder) strings in ARM template → temp file
+    _tmp_arm_path = None
+    _arm_deploy_path = arm_path
+    try:
+        _arm_text = open(arm_path, encoding='utf-8').read()
+        _arm_modified = _arm_text
+        for _pk, _pv in _PARAM_MAP.items():
+            if _pv:
+                _arm_modified = _arm_modified.replace(f'$({_pk})', _pv)
+        if _arm_modified != _arm_text:
+            _tmp_fd, _tmp_arm_path = _tempfile.mkstemp(suffix='.json', prefix='adf_arm_')
+            with _os.fdopen(_tmp_fd, 'w', encoding='utf-8') as _f:
+                _f.write(_arm_modified)
+            _arm_deploy_path = _tmp_arm_path
+    except Exception as _e:
+        lines.append(f'WARNING: could not substitute ARM template placeholders: {_e}')
+
+    def _cleanup_tmp():
+        if _tmp_arm_path and _os.path.exists(_tmp_arm_path):
+            try: _os.unlink(_tmp_arm_path)
+            except Exception: pass
+
     lines.append('═' * 60)
     lines.append('PHASE 1 — ADF ARM Template Deployment')
     lines.append('═' * 60)
@@ -654,7 +1080,7 @@ def _run_az_deploy(report_name):
          f'Ensuring resource group {rg} exists'),
         ([AZ, 'deployment', 'group', 'create',
           '--resource-group', rg,
-          '--template-file', arm_path,
+          '--template-file', _arm_deploy_path,
           '--parameters', f'@{params_path}',
           '--name', f'deploy-{report_name}'],
          f'Deploying ARM template for {report_name}'),
@@ -670,13 +1096,13 @@ def _run_az_deploy(report_name):
                 lines.append(result.stderr.strip())
             if result.returncode != 0:
                 lines.append(f'ERROR: step failed (exit {result.returncode})')
-                return False, '\n'.join(lines)
+                _cleanup_tmp(); return False, '\n'.join(lines)
         except FileNotFoundError:
             lines.append('ERROR: az CLI not found. Install Azure CLI and run "az login" first.')
-            return False, '\n'.join(lines)
+            _cleanup_tmp(); return False, '\n'.join(lines)
         except subprocess.TimeoutExpired:
             lines.append('ERROR: deployment timed out after 3 minutes.')
-            return False, '\n'.join(lines)
+            _cleanup_tmp(); return False, '\n'.join(lines)
 
     lines.append('\nPhase 1 complete — ADF deployed.')
 
@@ -698,13 +1124,13 @@ def _run_az_deploy(report_name):
             lines.append('ERROR: Could not retrieve SQL password from Key Vault.')
             lines.append(kv_result.stderr.strip())
             lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
-            return False, '\n'.join(lines)
+            _cleanup_tmp(); return False, '\n'.join(lines)
         sql_pwd = kv_result.stdout.strip()
         lines.append('SQL password retrieved.')
     except Exception as e:
         lines.append(f'ERROR: Key Vault error: {e}')
         lines.append('Database scripts NOT executed — check az login and Key Vault permissions.')
-        return False, '\n'.join(lines)
+        _cleanup_tmp(); return False, '\n'.join(lines)
 
     server_fqdn = f'{srv}.database.windows.net'
 
@@ -760,13 +1186,16 @@ def _run_az_deploy(report_name):
         (table_ddl_path,   f'Table DDL — mock data (POC only, report: {report_name})'),
     ]:
         if not _exec_sql_file(sql_path, desc):
-            return False, '\n'.join(lines)
+            _cleanup_tmp(); return False, '\n'.join(lines)
 
     lines.append('\n' + '═' * 60)
     lines.append('Deployment completed successfully.')
     lines.append('  ADF pipeline and triggers deployed.')
     lines.append('  Database scripts executed against: ' + server_fqdn)
     lines.append('═' * 60)
+    if _tmp_arm_path and _os.path.exists(_tmp_arm_path):
+        try: _os.unlink(_tmp_arm_path)
+        except Exception: pass
     return True, '\n'.join(lines)
 
 
@@ -779,9 +1208,30 @@ with st.sidebar:
     if os.path.exists(logo_path):
         st.image(logo_path, width=140)
 
-    # Run mode
-    run_mode = st.radio('Run Mode', ['Single Report', 'Batch Run'],
-                        horizontal=True, label_visibility='visible')
+    # Run mode — options driven by UI/ui_config.json run_modes flags
+    _ui_cfg_path = os.path.join(UI_DIR, 'ui_config.json')
+    _run_modes_cfg = {'single_report': True, 'batch_run': True}
+    if os.path.exists(_ui_cfg_path):
+        try:
+            with open(_ui_cfg_path, encoding='utf-8') as _f:
+                _rm = json.load(_f).get('run_modes', {})
+            _run_modes_cfg['single_report'] = bool(_rm.get('single_report', True))
+            _run_modes_cfg['batch_run']     = bool(_rm.get('batch_run',     True))
+        except Exception:
+            pass
+
+    _mode_options = []
+    if _run_modes_cfg['single_report']:
+        _mode_options.append('Single Report')
+    if _run_modes_cfg['batch_run']:
+        _mode_options.append('Batch Run')
+
+    if not _mode_options:
+        st.warning('No run modes enabled in poc_team_config.json.')
+        run_mode = None
+    else:
+        run_mode = st.radio('Run Mode', _mode_options,
+                            horizontal=True, label_visibility='visible')
 
     st.divider()
 
@@ -836,6 +1286,7 @@ with st.sidebar:
                 3: 'Config Setup',
                 4: 'Deploy Scripts',
                 5: 'Blob Upload',
+                6: 'Excel Writer URL',
             }
             for step, label in STEP_LABELS.items():
                 done = status.get(step, False)
@@ -846,30 +1297,41 @@ with st.sidebar:
 
     else:  # Batch Run
         st.subheader('Batch Selection')
-        all_files = _input_files()
-        total = len(all_files)
+
+        # Unified list: existing reports (✅) + unprocessed input files (new)
+        _b_existing  = _existing_reports()
+        _b_existing_s = set(_b_existing)
+        _b_new = [os.path.splitext(f)[0] for f in _input_files()
+                  if not f.startswith('_') and os.path.splitext(f)[0] not in _b_existing_s]
+        all_items = _b_existing + _b_new
+        total = len(all_items)
+
+        def _b_label(name):
+            return f'{name}  ✅' if name in _b_existing_s else f'{name}  (new)'
 
         if total == 0:
-            st.warning('No files in input/ yet.')
+            st.warning('No reports or input files found.')
         else:
             # Select All / Deselect All toggle
-            all_checked = st.checkbox(
-                f'Select All ({total})',
-                value=len(st.session_state.get('batch_files', [])) == total,
-                key='batch_select_all'
-            )
-            if all_checked:
-                st.session_state['batch_files'] = all_files
+            all_checked = st.checkbox(f'Select All ({total})', key='batch_select_all')
+
+            # When the toggle changes, push the new state into every individual key
+            _prev_all = st.session_state.get('_batch_prev_all')
+            if all_checked != _prev_all:
+                for _n in all_items:
+                    st.session_state[f'bchk_{_n}'] = all_checked
+                st.session_state['_batch_prev_all'] = all_checked
 
             st.markdown('<div style="margin:4px 0"></div>', unsafe_allow_html=True)
 
             # Individual checkboxes
             selected = []
-            for f in all_files:
-                default_val = all_checked or f in st.session_state.get('batch_files', [])
-                checked = st.checkbox(f, value=default_val, key=f'chk_{f}')
-                if checked:
-                    selected.append(f)
+            for name in all_items:
+                _k = f'bchk_{name}'
+                if _k not in st.session_state:
+                    st.session_state[_k] = False
+                if st.checkbox(_b_label(name), key=_k):
+                    selected.append(name)
 
             st.session_state['batch_files'] = selected
             st.caption(f'{len(selected)} of {total} selected')
@@ -878,7 +1340,7 @@ with st.sidebar:
         if 'batch_results' in st.session_state:
             results = st.session_state['batch_results']
             done_count = sum(1 for r in results if all(
-                r.get(f't{i}', False) for i in range(1, 6)))
+                r.get(f't{i}') is not False for i in range(1, 6)))
             st.metric('Completed', f'{done_count} / {len(results)}')
 
     st.divider()
@@ -956,7 +1418,8 @@ if run_mode == 'Single Report':
         '3 - Config Setup',
         '4 - Deploy Scripts',
         '5 - Blob Upload',
-        '6 - POC Tools',
+        '6 - Excel Writer',
+        '7 - POC Tools',
     ])
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -966,97 +1429,92 @@ if run_mode == 'Single Report':
 if run_mode == 'Batch Run':
     st.subheader('Batch Run')
 
+    batch_action = st.radio(
+        'Action',
+        ['Add / Update', 'Disable'],
+        horizontal=True,
+        key='batch_action',
+    )
+
     batch_files = st.session_state.get('batch_files', [])
 
     if not batch_files:
-        st.info('Select files to process using the sidebar — type a number and click Select, '
-                'use Select All, or pick individual files from the multiselect.')
+        st.info('Select reports using the sidebar checkboxes.')
     else:
-        st.markdown(f'**{len(batch_files)} file(s) queued:**')
-        with st.expander('Show selected files', expanded=False):
+        st.markdown(f'**{len(batch_files)} report(s) selected:**')
+        with st.expander('Show selected', expanded=False):
             for f in batch_files:
                 st.text(f'  {f}')
 
         st.divider()
 
-        # Tool selection
-        st.markdown('**Select tools to run for each report:**')
-        bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-        with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',        value=True,  key='b_t1')
-        with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates',   value=True,  key='b_t2')
-        with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',    value=True,  key='b_t3')
-        with bc4: run_t4 = st.checkbox('Tool 4\nDeploy to Azure', value=False, key='b_t4')
-        with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',    value=False, key='b_t5')
+        # ── Add / Update ──────────────────────────────────────────────────
+        if batch_action == 'Add / Update':
+            st.markdown('**Select tools to run for each report:**')
+            bc1, bc2, bc3, bc4, bc5 = st.columns(5)
+            with bc1: run_t1 = st.checkbox('Tool 1\nSanitize',        value=True,  key='b_t1')
+            with bc2: run_t2 = st.checkbox('Tool 2\nADF Templates',   value=True,  key='b_t2')
+            with bc3: run_t3 = st.checkbox('Tool 3\nConfig Setup',    value=True,  key='b_t3')
+            with bc4: run_t4 = st.checkbox('Tool 4\nDeploy to Azure', value=False, key='b_t4')
+            with bc5: run_t5 = st.checkbox('Tool 5\nBlob Upload',    value=False, key='b_t5')
 
-        if run_t4:
-            st.caption('Tool 4 will generate scripts **and** deploy to Azure POC '
-                       '(az CLI + SQL execution). Make sure you have run `az login` first.')
+            if run_t4:
+                st.caption('Tool 4 will generate scripts **and** deploy to Azure POC '
+                           '(az CLI + SQL execution). Make sure you have run `az login` first.')
 
-        # Options row
-        oc1, oc2 = st.columns([1, 1])
-        with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)', key='b_poc')
-        with oc2: batch_verb = st.checkbox('Verbose output',    key='b_verb')
+            oc1, oc2 = st.columns([1, 1])
+            with oc1: batch_poc  = st.checkbox('POC mode (Tool 3)', key='b_poc')
+            with oc2: batch_verb = st.checkbox('Verbose output',    key='b_verb')
 
-        st.divider()
+            st.divider()
 
-        if st.button('▶  Run Batch', type='primary', key='btn_batch'):
-            from tool1_sanitize import sanitize_file
-            from utils.mapping_registry import MappingRegistry
-            from tool2_adf_generator import generate_adf
-            from tool3_config_setup import generate_config
-            from tool4_adf_deploy import generate_deploy
-            from tool5_blob_upload import generate_upload
+            if st.button('▶  Run Batch', type='primary', key='btn_batch'):
+                from tool1_sanitize import sanitize_file
+                from utils.mapping_registry import MappingRegistry
+                from tool2_adf_generator import generate_adf
+                from tool3_config_setup import generate_config
+                from tool4_adf_deploy import generate_deploy
+                from tool5_blob_upload import generate_upload
 
-            registry_path = os.path.join(GLOBAL_DIR, 'mapping_registry.csv')
-            registry = MappingRegistry(registry_path)
+                registry_path = os.path.join(GLOBAL_DIR, 'mapping_registry.csv')
+                registry = MappingRegistry(registry_path)
 
-            results = []
-            progress_bar = st.progress(0, text='Starting...')
-            status_box   = st.empty()
+                results = []
+                progress_bar = st.progress(0, text='Starting...')
+                status_box   = st.empty()
 
-            for idx, fname in enumerate(batch_files):
-                xml_path = os.path.join(INPUT_DIR, fname)
-                row = {'file': fname, 'report_name': '', 't1': None, 't2': None,
-                       't3': None, 't4': None, 't4_az': None, 't5': None, 'errors': []}
+                for idx, label in enumerate(batch_files):
+                    pct = idx / len(batch_files)
+                    progress_bar.progress(pct, text=f'Processing {idx+1}/{len(batch_files)}: {label}')
+                    status_box.info(f'Processing: **{label}**')
 
-                pct  = (idx) / len(batch_files)
-                progress_bar.progress(pct, text=f'Processing {idx+1}/{len(batch_files)}: {fname}')
-                status_box.info(f'Processing: **{fname}**')
+                    # Report name = input filename stem (same as label for new files)
+                    rn = label
+                    fname = next(
+                        (f for f in os.listdir(INPUT_DIR)
+                         if not f.startswith('_') and os.path.splitext(f)[0] == label),
+                        None,
+                    )
+                    xml_path = os.path.join(INPUT_DIR, fname) if fname else None
 
-                # Pre-extract report_name from XML before running any tool
-                # (ToadXmlParser reads the Xoml Name attribute — most reliable source)
-                try:
-                    from utils.xml_parser import ToadXmlParser
-                    _p = ToadXmlParser(xml_path)
-                    _p.parse()
-                    _pre = _p.summary().get('report_name', '')
-                    if _pre:
-                        row['report_name'] = _pre
-                except Exception:
-                    pass
+                    row = {
+                        'file': fname or label,
+                        'report_name': rn,
+                        't1': None, 't2': None, 't3': None,
+                        't4': None, 't5': None, 'errors': [],
+                    }
 
-                # Tool 1 — sanitize
-                if run_t1:
-                    ok, out = _capture(sanitize_file, xml_path, registry, batch_verb)
-                    registry._save()
-                    row['t1'] = ok
-                    if not ok:
-                        row['errors'].append(f'Tool 1: {out.splitlines()[-1] if out.strip() else "failed"}')
-                    elif not row['report_name']:
-                        # Secondary fallback: parse path from Tool 1 printed output
-                        # Output line: "  Sanitized  : .../reports/{name}/sanitized/{name}_sanitized.txt"
-                        for line in out.splitlines():
-                            if 'Sanitized' in line and ':' in line:
-                                path_part = line.split(':', 1)[1].strip()
-                                rn = os.path.basename(os.path.dirname(os.path.dirname(path_part)))
-                                if rn and rn != 'sanitized':
-                                    row['report_name'] = rn
-                                break
+                    # Tool 1 — sanitize (requires input file)
+                    if run_t1:
+                        if xml_path and os.path.exists(xml_path):
+                            ok, out = _capture(sanitize_file, xml_path, registry, batch_verb)
+                            registry._save()
+                            row['t1'] = ok
+                            if not ok:
+                                row['errors'].append(f'Tool 1: {out.splitlines()[-1] if out.strip() else "failed"}')
+                        else:
+                            row['t1'] = None  # no input file — skip silently
 
-                rn = row['report_name']
-
-                # Tools 2-5 need a report_name
-                if rn:
                     if run_t2:
                         ok, out = _capture(generate_adf, rn, batch_verb)
                         row['t2'] = ok
@@ -1070,13 +1528,11 @@ if run_mode == 'Batch Run':
                             row['errors'].append(f'Tool 3: {out.splitlines()[-1] if out.strip() else "failed"}')
 
                     if run_t4:
-                        # Step 1: generate scripts
                         ok, out = _capture(generate_deploy, rn, verbose=batch_verb)
                         if not ok:
                             row['t4'] = False
                             row['errors'].append(f'Tool 4 (scripts): {out.splitlines()[-1] if out.strip() else "failed"}')
                         else:
-                            # Step 2: deploy to Azure + execute SQL
                             status_box.info(f'Deploying to Azure: **{rn}**')
                             az_ok, az_out = _run_az_deploy(rn)
                             row['t4'] = az_ok
@@ -1091,71 +1547,83 @@ if run_mode == 'Batch Run':
                         if not ok:
                             row['errors'].append(f'Tool 5: {out.splitlines()[-1] if out.strip() else "failed"}')
 
-                results.append(row)
+                    results.append(row)
 
-            progress_bar.progress(1.0, text='Done!')
-            status_box.empty()
-            st.session_state['batch_results'] = results
-            st.rerun()
-
-        # Show results table
-        if 'batch_results' in st.session_state:
-            results = st.session_state['batch_results']
-            st.divider()
-            st.subheader('Results')
-
-            def _cell(val):
-                if val is True:  return '✅'
-                if val is False: return '❌'
-                return '—'
-
-            import pandas as pd
-            rows = []
-            for r in results:
-                row_dict = {
-                    'File':         r['file'],
-                    'Report Name':  r['report_name'] or '(unknown)',
-                    'Tool 1':       _cell(r['t1']),
-                    'Tool 2':       _cell(r['t2']),
-                    'Tool 3':       _cell(r['t3']),
-                    'Tool 4':       _cell(r['t4']),
-                    'Tool 5':       _cell(r['t5']),
-                    'Errors':       ' | '.join(r['errors']) if r['errors'] else '',
-                }
-                if any(r.get('t4_az') is not None for r in results):
-                    row_dict['AZ Deploy'] = _cell(r.get('t4_az'))
-                rows.append(row_dict)
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-            # Per-report deploy output buttons
-            az_results = [r for r in results if r.get('t4_az_out')]
-            if az_results:
-                st.markdown('**Deploy output (click to view per report):**')
-                for r in az_results:
-                    rn_label = r['report_name'] or r['file']
-                    icon = '✅' if r.get('t4') else '❌'
-                    if st.button(f'{icon} {rn_label} — View Deploy Output',
-                                 key=f'view_az_{rn_label}'):
-                        _output_popup(f'Deploy Output — {rn_label}', r['t4_az_out'])
-
-            # Summary metrics
-            mc1, mc2, mc3 = st.columns(3)
-            with mc1:
-                total = len(results)
-                st.metric('Total files', total)
-            with mc2:
-                ok_count = sum(1 for r in results
-                               if all(r.get(f't{i}') is not False
-                                      for i in range(1, 6)))
-                st.metric('All steps OK', ok_count)
-            with mc3:
-                err_count = sum(1 for r in results if r['errors'])
-                st.metric('With errors', err_count)
-
-            if st.button('Clear results', key='btn_clear_batch'):
-                del st.session_state['batch_results']
+                progress_bar.progress(1.0, text='Done!')
+                status_box.empty()
+                st.session_state['batch_results'] = results
                 st.rerun()
+
+            # Show results table
+            if 'batch_results' in st.session_state:
+                results = st.session_state['batch_results']
+                st.divider()
+                st.subheader('Results')
+
+                def _cell(val):
+                    if val is True:  return '✅'
+                    if val is False: return '❌'
+                    return '—'
+
+                import pandas as pd
+                rows_data = []
+                for r in results:
+                    row_dict = {
+                        'Report Name':  r['report_name'] or r['file'],
+                        'Tool 1':       _cell(r['t1']),
+                        'Tool 2':       _cell(r['t2']),
+                        'Tool 3':       _cell(r['t3']),
+                        'Tool 4':       _cell(r['t4']),
+                        'Tool 5':       _cell(r['t5']),
+                        'Errors':       ' | '.join(r['errors']) if r['errors'] else '',
+                    }
+                    rows_data.append(row_dict)
+                df = pd.DataFrame(rows_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                az_results = [r for r in results if r.get('t4_az_out')]
+                if az_results:
+                    st.markdown('**Deploy output (click to view per report):**')
+                    for r in az_results:
+                        rn_label = r['report_name'] or r['file']
+                        icon = '✅' if r.get('t4') else '❌'
+                        if st.button(f'{icon} {rn_label} — View Deploy Output',
+                                     key=f'view_az_{rn_label}'):
+                            _output_popup(f'Deploy Output — {rn_label}', r['t4_az_out'])
+
+                mc1, mc2, mc3 = st.columns(3)
+                with mc1: st.metric('Total', len(results))
+                with mc2:
+                    ok_count = sum(1 for r in results
+                                   if all(r.get(f't{i}') is not False for i in range(1, 6)))
+                    st.metric('All steps OK', ok_count)
+                with mc3:
+                    st.metric('With errors', sum(1 for r in results if r['errors']))
+
+                if st.button('Clear results', key='btn_clear_batch'):
+                    del st.session_state['batch_results']
+                    st.rerun()
+
+        # ── Disable ───────────────────────────────────────────────────────
+        elif batch_action == 'Disable':
+            st.info(
+                'Disabling a report sets `is_active = N` in the SQL config and stops '
+                'its ADF trigger. The report folder, ARM templates, and all other files '
+                'are left untouched.'
+            )
+            st.markdown('**Reports to disable:** ' + ', '.join(f'`{r}`' for r in batch_files))
+            disable_confirm = st.checkbox(
+                'I understand — disable the selected reports',
+                key='batch_disable_confirm',
+            )
+            if st.button('⏸  Disable Selected', type='primary', key='btn_batch_disable',
+                         disabled=not disable_confirm):
+                ok, out = _run_disable_reports(batch_files)
+                if ok:
+                    st.success('Done.')
+                else:
+                    st.error('Completed with errors — see output below.')
+                st.code(out, language=None)
 
     # Stop here — don't show single-report tabs in batch mode
     st.stop()
@@ -1426,9 +1894,44 @@ with tabs[3]:
             with col_deploy:
                 az_cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
                 if os.path.exists(az_cfg_path):
+                    func_script_exists = os.path.exists(
+                        os.path.join(FUNC_WRITER_DIR, 'deploy', 'deploy_func.ps1'))
+                    deploy_func_cb = st.checkbox(
+                        'Include Excel Writer function deployment',
+                        value=func_script_exists and not _func_url_is_set(report_name),
+                        key='t4_deploy_func',
+                        help='Runs deploy_func.ps1 first, then saves the function URL into the '
+                             'ARM template before deploying ADF.',
+                        disabled=not func_script_exists,
+                    )
+
+                    # ── Excel Writer URL (Step 6 inline) ──────────────────────
+                    st.markdown('**Excel Writer URL**')
+                    _cur_url = _get_excel_writer_url(report_name)
+                    if _func_url_is_set(report_name):
+                        st.caption('✅ URL is set')
+                    else:
+                        st.caption('⚠️ Placeholder — paste the deployed Function URL below')
+                    t4_url_input = st.text_input(
+                        'Function URL',
+                        value=_cur_url,
+                        key='t4_excel_writer_url',
+                        label_visibility='collapsed',
+                        placeholder='https://func-excel-writer-poc.azurewebsites.net/api/excel_writer?code=...',
+                    )
+
                     if st.button('🚀  Deploy to Azure POC', type='primary', key='btn_az_deploy'):
-                        with st.spinner('Deploying to Azure POC — this may take a minute...'):
-                            ok, output = _run_az_deploy(report_name)
+                        _url_to_save = (t4_url_input or '').strip()
+                        if _url_to_save and _url_to_save != _cur_url:
+                            _save_excel_writer_url(report_name, _url_to_save)
+                        spinner_msg = (
+                            'Deploying Excel Writer function + ADF — this may take a few minutes...'
+                            if deploy_func_cb else
+                            'Deploying to Azure POC — this may take a minute...'
+                        )
+                        with st.spinner(spinner_msg):
+                            ok, output = _run_az_deploy(report_name,
+                                                        deploy_func_app=deploy_func_cb)
                         st.session_state['tool4_az_output'] = output
                         st.session_state['tool4_az_ok'] = ok
                         _write_process_log(report_name, 4, 'azure_deploy', ok, output)
@@ -1503,7 +2006,8 @@ with tabs[4]:
             st.success('Sanitized XML found.')
 
             # XLSM template upload widget
-            xlsm_dir = os.path.join(GLOBAL_DIR, 'xlsm_templates', report_name)
+            xlsm_dir = os.path.join(BASE_DIR, 'report_templates')
+            os.makedirs(xlsm_dir, exist_ok=True)
             existing_xlsm = glob.glob(os.path.join(xlsm_dir, '*.xlsm'))
 
             st.markdown('**Upload Excel template (.xlsm)**')
@@ -1511,19 +2015,17 @@ with tabs[4]:
                 'Upload .xlsm template file',
                 type=['xlsm'], key='tool5_xlsm')
             if xlsm_upload:
-                os.makedirs(xlsm_dir, exist_ok=True)
                 dest = os.path.join(xlsm_dir, xlsm_upload.name)
                 with open(dest, 'wb') as f:
                     f.write(xlsm_upload.read())
-                st.success(f'Saved to global/xlsm_templates/{report_name}/{xlsm_upload.name}')
+                st.success(f'Saved to report_templates/{xlsm_upload.name}')
                 existing_xlsm = glob.glob(os.path.join(xlsm_dir, '*.xlsm'))
 
             if existing_xlsm:
-                st.info('Templates in local folder:\n' +
+                st.info('Templates in report_templates/:\n' +
                         '\n'.join(f'  - {os.path.basename(p)}' for p in existing_xlsm))
             else:
-                st.warning(f'No .xlsm file found in global/xlsm_templates/{report_name}/. '
-                           'Upload one above.')
+                st.warning('No .xlsm file found in report_templates/. Upload one above.')
 
             verbose5 = st.checkbox('Verbose output', key='tool5_verbose')
 
@@ -1569,13 +2071,271 @@ with tabs[4]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 6 — POC Tools (Tool 1.01 + Tool 1.02)
+# TAB 6 — Excel Writer Function
 # ─────────────────────────────────────────────────────────────────────────────
 
 with tabs[5]:
+    st.subheader('Step 6 — Excel Writer Function')
+    st.caption(
+        'Deploy the Azure Function that populates Excel (.xlsm) templates with report data, '
+        'then configure the function URL in this report\'s ARM template.'
+    )
+
+    # ── Section A: Environment (one-time deploy + unit tests) ─────────────────
+    st.markdown('### Environment Setup (once per Azure environment)')
+
+    env_c1, env_c2 = st.columns([1, 1])
+
+    with env_c1:
+        st.markdown('**Deploy to Azure POC**')
+        st.markdown(
+            'Runs `deploy_func.ps1` which:\n'
+            '- Creates the Function App (Python 3.11, consumption)\n'
+            '- Assigns managed identity + Key Vault access\n'
+            '- Sets connection strings as Key Vault references\n'
+            '- Zip-deploys the function code'
+        )
+        az_cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+        if not os.path.exists(az_cfg_path):
+            st.warning('poc_azure_config.json not found in global/ — required for deployment.')
+        elif not os.path.exists(os.path.join(FUNC_WRITER_DIR, 'deploy', 'deploy_func.ps1')):
+            st.warning('deploy_func.ps1 not found in func_excel_writer/deploy/')
+        else:
+            if st.button('🚀  Deploy to Azure POC', type='primary', key='btn_func_deploy'):
+                with st.spinner('Deploying Excel Writer function — this may take a few minutes...'):
+                    ok, output = _run_func_deploy()
+                st.session_state['tool6_deploy_output'] = output
+                st.session_state['tool6_deploy_ok'] = ok
+
+        if 'tool6_deploy_ok' in st.session_state:
+            if st.session_state['tool6_deploy_ok']:
+                st.success('Function deployed successfully.')
+            else:
+                st.error('Deployment failed. View output for details.')
+            if st.button('📋 View Deploy Output', key='view_func_deploy_out'):
+                _output_popup('Excel Writer — Deploy Output',
+                              st.session_state['tool6_deploy_output'])
+
+    with env_c2:
+        st.markdown('**Unit Tests (no Azure needed)**')
+        st.markdown(
+            'Runs `test_unit.py` — verifies the Excel template-writing logic '
+            'in isolation using in-memory files. No Azure connections required.'
+        )
+        test_py = os.path.join(FUNC_WRITER_DIR, 'test_unit.py')
+        if not os.path.exists(test_py):
+            st.warning('test_unit.py not found in func_excel_writer/')
+        else:
+            if st.button('▶  Run Unit Tests', type='primary', key='btn_func_tests'):
+                with st.spinner('Running unit tests...'):
+                    ok, output = _run_unit_tests()
+                st.session_state['tool6_test_output'] = output
+                st.session_state['tool6_test_ok'] = ok
+
+        if 'tool6_test_ok' in st.session_state:
+            if st.session_state['tool6_test_ok']:
+                st.success('All unit tests passed.')
+            else:
+                st.error('One or more unit tests failed.')
+            if st.button('📋 View Test Output', key='view_func_test_out'):
+                _output_popup('Excel Writer — Unit Test Output',
+                              st.session_state['tool6_test_output'])
+
+    st.divider()
+
+    # ── Section B: Per-report function URL configuration ─────────────────────
+    st.markdown('### Configure Function URL (per report)')
+
+    if not report_name:
+        st.warning('Select a report in the sidebar first.')
+    else:
+        arm_path = os.path.join(REPORTS_DIR, report_name, 'adf', 'arm_template.json')
+        if not _prereq(os.path.exists(arm_path),
+                       'ARM template not found. Run Step 2 (ADF Templates) first.'):
+            pass
+        else:
+            import json as _json_t6
+
+            # Read current value from the ARM template
+            current_url = ''
+            try:
+                with open(arm_path, encoding='utf-8') as _f:
+                    _arm = _json_t6.load(_f)
+                for _res in _arm.get('resources', []):
+                    _params = _res.get('properties', {}).get('parameters', {})
+                    if 'excel_writer_url' in _params:
+                        current_url = _params['excel_writer_url'].get('defaultValue', '')
+                        break
+            except Exception:
+                pass
+
+            is_placeholder = not current_url or '<' in current_url
+            if is_placeholder:
+                st.warning(f'Function URL is not yet configured.  Current value: `{current_url}`')
+            else:
+                st.success(f'Function URL is set: `{current_url}`')
+
+            st.markdown('**Enter the function URL** (printed at the end of `deploy_func.ps1` output):')
+            new_url = st.text_input(
+                'excel_writer_url',
+                value='' if is_placeholder else current_url,
+                placeholder='https://<func-app>.azurewebsites.net/api/excel_writer?code=...',
+                key='t6_url_input',
+                label_visibility='collapsed',
+            )
+
+            if st.button('💾  Save URL to ARM Templates', type='primary', key='btn_save_url'):
+                if not new_url.strip():
+                    st.error('Enter a URL before saving.')
+                elif not new_url.strip().startswith('https://'):
+                    st.error('URL must start with https://')
+                else:
+                    n, names = _save_excel_writer_url(report_name, new_url.strip())
+                    if n:
+                        st.success(f'URL saved to {n} file(s): {", ".join(names)}')
+                    else:
+                        st.warning('No files were updated — excel_writer_url parameter not found in ARM templates.')
+
+            st.divider()
+
+            # ── Section C: Integration testing ───────────────────────────────
+            st.markdown('### Integration Testing')
+            st.caption(
+                'Deploys the function, saves its URL into the ARM template, '
+                'then shows the command to run the integration test locally.'
+            )
+
+            func_script_exists = os.path.exists(
+                os.path.join(FUNC_WRITER_DIR, 'deploy', 'deploy_func.ps1'))
+
+            if not func_script_exists:
+                st.warning('deploy_func.ps1 not found — cannot deploy function from here.')
+            else:
+                if st.button('🚀  Deploy Function & Update ARM Template',
+                             type='primary', key='btn_pre_test_deploy'):
+                    with st.spinner('Deploying Excel Writer function...'):
+                        dep_ok, dep_out = _run_func_deploy()
+                    st.session_state['tool6_pre_test_output'] = dep_out
+                    st.session_state['tool6_pre_test_ok']     = dep_ok
+
+                    if dep_ok:
+                        import re as _re_t6
+                        url_m = _re_t6.search(
+                            r'https://[^\s]+/api/excel_writer[^\s]*', dep_out)
+                        if url_m:
+                            extracted = url_m.group(0).rstrip(')')
+                            n, names = _save_excel_writer_url(report_name, extracted)
+                            st.session_state['tool6_pre_test_url'] = extracted
+                            st.session_state['tool6_pre_test_saved'] = n
+                        else:
+                            st.session_state.pop('tool6_pre_test_url', None)
+                            st.session_state['tool6_pre_test_saved'] = 0
+
+            # Show deploy result
+            if 'tool6_pre_test_ok' in st.session_state:
+                pre_ok  = st.session_state['tool6_pre_test_ok']
+                pre_out = st.session_state['tool6_pre_test_output']
+                pre_url = st.session_state.get('tool6_pre_test_url', '')
+                pre_n   = st.session_state.get('tool6_pre_test_saved', 0)
+
+                if pre_ok:
+                    if pre_url:
+                        st.success(f'Function deployed. URL: `{pre_url}`')
+                        if pre_n:
+                            st.success(f'ARM template updated ({pre_n} file(s)).')
+                    else:
+                        st.warning(
+                            'Function deployed but URL could not be parsed from output. '
+                            'Copy it from the output below and save it via the input field above.')
+                else:
+                    st.error('Function deployment failed.')
+
+                if st.button('📋 View Deploy Output', key='view_pre_test_out'):
+                    _output_popup('Pre-test Deploy Output', pre_out)
+
+            st.divider()
+
+            # Show integration test command (always, so user can copy it)
+            from datetime import date as _date
+            today_str = _date.today().strftime('%d.%m.%Y')
+
+            int_cmd = (
+                f'cd {FUNC_WRITER_DIR}\n'
+                f'python test_integration.py {report_name} {today_str}'
+            )
+            st.markdown('**Run this command locally once the function is deployed:**')
+            st.code(int_cmd, language='bash')
+
+            tmpl_path = os.path.join(FUNC_WRITER_DIR, 'local.settings.json.template')
+            if os.path.exists(tmpl_path):
+                st.info(
+                    'Copy `func_excel_writer/local.settings.json.template` → '
+                    '`func_excel_writer/local.settings.json` and fill in your connection '
+                    'strings before running the integration test.'
+                )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 7 — POC Tools (Tool 1.01 + Tool 1.02)
+# ─────────────────────────────────────────────────────────────────────────────
+
+with tabs[6]:
     st.subheader('POC Tools (Dev / Feasibility only)')
     st.caption('These tools generate synthetic test data and DDL scripts. '
                'Not needed for production migration — POC only.')
+
+    # ── Reset Environment ──────────────────────────────────────────────────────
+    with st.expander('🗑️  Reset Environment — Clear All Config & ADF', expanded=False):
+        st.warning(
+            '**This will permanently delete:**\n'
+            '- All rows in `config.report`, `config.report_sql`, `config.report_email`\n'
+            '- All ADF triggers, pipelines, datasets, and linked services\n\n'
+            'Local report files are **not** affected. You can re-deploy from scratch via the UI.'
+        )
+
+        # Live counts
+        if st.button('🔍  Check current state', key='btn_clear_check'):
+            with st.spinner('Checking Azure + SQL...'):
+                counts = _get_clear_all_counts()
+            st.session_state['clear_all_counts'] = counts
+
+        if 'clear_all_counts' in st.session_state:
+            c = st.session_state['clear_all_counts']
+            if c:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown('**SQL Config DB**')
+                    st.markdown(f'- `config.report` — **{c.get("config.report", "?")}** rows')
+                    st.markdown(f'- `config.report_sql` — **{c.get("config.report_sql", "?")}** rows')
+                    st.markdown(f'- `config.report_email` — **{c.get("config.report_email", "?")}** rows')
+                with col2:
+                    st.markdown('**Azure Data Factory**')
+                    st.markdown(f'- Pipelines — **{c.get("adf_pipelines", "?")}**')
+                    st.markdown(f'- Triggers — **{c.get("adf_triggers", "?")}**')
+                    st.markdown(f'- Datasets — **{c.get("adf_datasets", "?")}**')
+                    st.markdown(f'- Linked Services — **{c.get("adf_linked_services", "?")}**')
+            else:
+                st.error('Could not read config — check poc_azure_config.json exists.')
+
+        st.divider()
+        confirm = st.checkbox(
+            'I understand this will delete all config data and ADF resources',
+            key='clear_all_confirm')
+        if st.button('🗑️  Clear All', type='primary', disabled=not confirm, key='btn_clear_all'):
+            with st.spinner('Clearing SQL config and ADF resources...'):
+                ok, log = _run_clear_all()
+            st.session_state['clear_all_output'] = log
+            st.session_state['clear_all_ok'] = ok
+            st.session_state.pop('clear_all_counts', None)
+
+        if 'clear_all_output' in st.session_state:
+            if st.session_state['clear_all_ok']:
+                st.success('Environment cleared successfully.')
+            else:
+                st.error('Clear failed — see details below.')
+            _show_output(st.session_state['clear_all_output'], 'Clear All Output')
+
+    st.divider()
 
     if not report_name:
         st.warning('Select a report in the sidebar first.')

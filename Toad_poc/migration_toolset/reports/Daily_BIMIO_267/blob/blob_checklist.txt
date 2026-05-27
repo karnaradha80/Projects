@@ -1,0 +1,28 @@
+============================================================
+BLOB UPLOAD CHECKLIST  --  Daily_BIMIO_267
+============================================================
+
+TEMPLATE CONTAINER : toad-poc-reports  (shared)
+OUTPUT  CONTAINER  : daily-bimio-267  (per-report)
+BLOB LAYOUT        : toad-poc-reports/templates/{filename}.xlsm
+
+EXPECTED TEMPLATES
+----------------------------------------
+  [OK] present
+    Local  : C:\Projects\Toad_poc\migration_toolset\report_templates\BIMIO 267 - 12 Hour Prevented Daily For_.xlsm
+    Blob   : toad-poc-reports/templates/BIMIO 267 - 12 Hour Prevented Daily For_.xlsm
+    Detect : via CopyFileActivity
+    Origin : \\FILESERVER\reports\path01  (sanitised UNC)
+
+STORAGE ACCOUNT
+----------------------------------------
+  [OK] sttoadpoc
+
+ACTION REQUIRED
+----------------------------------------
+UPLOAD SCRIPT
+----------------------------------------
+  reports/Daily_BIMIO_267/blob/upload_Daily_BIMIO_267.ps1  (or .sh)
+
+STATUS: READY TO UPLOAD
+============================================================

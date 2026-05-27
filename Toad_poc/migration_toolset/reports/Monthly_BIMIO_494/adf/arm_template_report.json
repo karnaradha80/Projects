@@ -1,0 +1,92 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": {
+                "description": "ADF instance name"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "uksouth"
+        },
+        "azure_sql_server": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure SQL Server name"
+            }
+        },
+        "azure_sql_db": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure SQL Database name"
+            }
+        },
+        "key_vault_name": {
+            "type": "string",
+            "metadata": {
+                "description": "Key Vault name"
+            }
+        },
+        "storage_account_name": {
+            "type": "string",
+            "metadata": {
+                "description": "Blob Storage account name"
+            }
+        },
+        "logic_app_email_url": {
+            "type": "string",
+            "metadata": {
+                "description": "Logic App HTTP trigger URL"
+            }
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.DataFactory/factories/triggers",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/TR_Monthly_BIMIO_494_0600')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[concat(variables('factoryId'), '/pipelines/PL_Generic_Monthly')]"
+            ],
+            "properties": {
+                "description": "Schedule trigger for Monthly_BIMIO_494 -- runs PL_Generic_Monthly with report_name parameter.",
+                "runtimeState": "Stopped",
+                "type": "ScheduleTrigger",
+                "typeProperties": {
+                    "recurrence": {
+                        "frequency": "Day",
+                        "interval": 1,
+                        "startTime": "2026-01-01T06:00:00Z",
+                        "timeZone": "GMT Standard Time",
+                        "schedule": {
+                            "hours": [
+                                6
+                            ],
+                            "minutes": [
+                                0
+                            ]
+                        }
+                    }
+                },
+                "pipelines": [
+                    {
+                        "pipelineReference": {
+                            "referenceName": "PL_Generic_Monthly",
+                            "type": "PipelineReference"
+                        },
+                        "parameters": {
+                            "report_name": "Monthly_BIMIO_494"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

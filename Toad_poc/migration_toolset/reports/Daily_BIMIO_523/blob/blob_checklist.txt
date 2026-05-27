@@ -1,0 +1,28 @@
+============================================================
+BLOB UPLOAD CHECKLIST  --  Daily_BIMIO_523
+============================================================
+
+TEMPLATE CONTAINER : toad-poc-reports  (shared)
+OUTPUT  CONTAINER  : daily-bimio-523  (per-report)
+BLOB LAYOUT        : toad-poc-reports/templates/{filename}.xlsm
+
+EXPECTED TEMPLATES
+----------------------------------------
+  [OK] present
+    Local  : C:\Projects\Toad_poc\migration_toolset\report_templates\BIMIO 523 - SC Repair Workorders Report data up to and including .xlsm
+    Blob   : toad-poc-reports/templates/BIMIO 523 - SC Repair Workorders Report data up to and including .xlsm
+    Detect : via CopyFileActivity
+    Origin : \\FILESERVER\reports\path07  (sanitised UNC)
+
+STORAGE ACCOUNT
+----------------------------------------
+  [OK] sttoadpoc
+
+ACTION REQUIRED
+----------------------------------------
+UPLOAD SCRIPT
+----------------------------------------
+  reports/Daily_BIMIO_523/blob/upload_Daily_BIMIO_523.ps1  (or .sh)
+
+STATUS: READY TO UPLOAD
+============================================================

@@ -1,0 +1,20 @@
+{
+    "name": "LS_AzureSQL_Source",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure SQL Server -- POC source (simulates Oracle/Redshift)",
+        "type": "AzureSqlDatabase",
+        "typeProperties": {
+            "connectionString": "Server=tcp:$(azure_sql_server).database.windows.net,1433;Database=$(azure_sql_db);User ID=sqladmin;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;",
+            "password": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "LS_AzureKeyVault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "azuresql-db-password"
+            }
+        },
+        "annotations": []
+    }
+}

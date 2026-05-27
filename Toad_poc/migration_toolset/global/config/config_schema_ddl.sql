@@ -19,8 +19,10 @@ BEGIN
         [description]        VARCHAR(500) NULL,
         [schedule_time]      VARCHAR(10)  NOT NULL CONSTRAINT [DF_report_schedule] DEFAULT '06:00',
         [output_container]   VARCHAR(100) NOT NULL,
+        [template_container] VARCHAR(100) NULL,
         [template_name]      VARCHAR(500) NULL,
         [template_blob_path] VARCHAR(500) NULL,
+        [display_name]       VARCHAR(300) NULL,
         [is_active]          CHAR(1)      NOT NULL CONSTRAINT [DF_report_active]   DEFAULT 'Y',
         CONSTRAINT [PK_report]      PRIMARY KEY ([report_id]),
         CONSTRAINT [UQ_report_name] UNIQUE      ([report_name])
@@ -33,8 +35,12 @@ BEGIN
         ALTER TABLE [config].[report] ADD [template_name] VARCHAR(500) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_blob_path')
         ALTER TABLE [config].[report] ADD [template_blob_path] VARCHAR(500) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_container')
+        ALTER TABLE [config].[report] ADD [template_container] VARCHAR(100) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'report_category')
         ALTER TABLE [config].[report] ADD [report_category] VARCHAR(50) NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM';
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'display_name')
+        ALTER TABLE [config].[report] ADD [display_name] VARCHAR(300) NULL;
 END
 GO
 

@@ -33,10 +33,11 @@ import os
 import re
 import sys
 
-BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-REPORTS_DIR     = os.path.join(BASE_DIR, 'reports')
-GLOBAL_DIR      = os.path.join(BASE_DIR, 'global')
-POC_CONFIG_PATH = os.path.join(GLOBAL_DIR, 'poc_team_config.json')
+BASE_DIR           = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+REPORTS_DIR        = os.path.join(BASE_DIR, 'reports')
+GLOBAL_DIR         = os.path.join(BASE_DIR, 'global')
+POC_CONFIG_PATH    = os.path.join(GLOBAL_DIR, 'poc_team_config.json')
+TEMPLATE_CONTAINER = 'toad-poc-reports'   # shared container for all report templates
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +105,36 @@ def translate_sql(sql):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SQL comment stripper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _strip_sql_comments(sql):
+    """
+    Remove all SQL comments from a query string and tidy up blank lines.
+      - /* ... */ block comments (including multi-line change-log headers)
+      - -- line comments (full-line and end-of-line)
+    Consecutive blank lines are collapsed to a single blank line.
+    """
+    # Remove /* ... */ block comments first (DOTALL so . matches newlines)
+    sql = re.sub(r'/\*.*?\*/', '', sql, flags=re.DOTALL)
+    # Remove -- comments from each line (from -- to end of line)
+    sql = re.sub(r'--[^\n]*', '', sql)
+    # Rebuild lines, strip trailing whitespace, collapse consecutive blanks
+    lines   = [line.rstrip() for line in sql.splitlines()]
+    cleaned = []
+    prev_blank = False
+    for line in lines:
+        if line.strip() == '':
+            if not prev_blank and cleaned:   # keep at most one blank line
+                cleaned.append('')
+            prev_blank = True
+        else:
+            cleaned.append(line)
+            prev_blank = False
+    return '\n'.join(cleaned).strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SQL query extractor
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -113,13 +144,14 @@ def extract_sql_queries(raw, decoded):
     raw     : original file content (pre-decode, for attribute scanning)
     decoded : entity-decoded content
     Returns dict: { 'ODS_CHECK': str, 'REPORT_MAIN': str }
+    Comments (/* */ block comments and -- line comments) are stripped.
     """
     queries = {}
 
     # ODS check -- first SelectDataActivity
     ods_m = re.search(r'<ta1:SelectDataActivity[^>]+SqlScriptEmbed="([^"]+)"', raw)
     if ods_m:
-        ods_raw = _decode(ods_m.group(1)).strip()
+        ods_raw = _strip_sql_comments(_decode(ods_m.group(1)))
         ods_sql = translate_sql(ods_raw)
         # Ensure scalar result for ADF Lookup
         ods_sql = re.sub(r'^\s*SELECT\s+\*', 'SELECT COUNT(*) AS row_count',
@@ -131,9 +163,8 @@ def extract_sql_queries(raw, decoded):
     # Main report SQL -- SelectToExcelActivity
     rpt_m = re.search(r'<ta1:SelectToExcelActivity[^>]+SqlScriptEmbed="([^"]+)"', raw, re.DOTALL)
     if rpt_m:
-        rpt_raw = _decode(rpt_m.group(1)).strip()
-        lines = [l for l in rpt_raw.splitlines() if not l.strip().startswith('--')]
-        rpt_sql = translate_sql('\n'.join(lines).strip())
+        rpt_raw = _strip_sql_comments(_decode(rpt_m.group(1)))
+        rpt_sql = translate_sql(rpt_raw)
         queries['REPORT_MAIN'] = rpt_sql
 
     return queries
@@ -145,40 +176,20 @@ def extract_sql_queries(raw, decoded):
 
 def extract_template_info(decoded, report_name):
     """
-    Extract the xlsm template filename from CopyFileActivity or FileDescription.
+    Find the xlsm template for this report by scanning the report_templates/ folder.
+    Looks for any .xlsm file whose name starts with the report_name (case-insensitive).
     Returns (template_name, template_blob_path) or ('', '') if not found.
-    Blob path convention: templates/{report_name}/{filename}
     """
-    fname = ''
-
-    # 1. CopyFileActivity DestinationFileName (most reliable)
-    for m in re.finditer(
-            r'CopyFileActivity[^>]*DestinationFileName="([^"]*\.xlsm)"',
-            decoded, re.IGNORECASE | re.DOTALL):
-        fname = os.path.basename(m.group(1))
-        break
-
-    if not fname:
-        for m in re.finditer(
-                r'CopyFileActivity[^>]*SourceFileName="[^"]*"[^>]*DestinationFileName="([^"]*\.xlsm)"',
-                decoded, re.IGNORECASE | re.DOTALL):
-            fname = os.path.basename(m.group(1))
-            break
-
-    # 2. FileDescription
-    if not fname:
-        for m in re.finditer(
-                r'FileDescription[^>]*Description="(?:Copy_\d+:\s*)?([^"]*\.xlsm)"',
-                decoded, re.IGNORECASE):
-            fname = os.path.basename(m.group(1).strip())
-            if fname:
-                break
-
-    if not fname:
+    templates_dir = os.path.join(BASE_DIR, 'report_templates')
+    if not os.path.exists(templates_dir):
         return '', ''
 
-    blob_path = f'templates/{report_name}/{fname}'
-    return fname, blob_path
+    prefix = report_name.lower()
+    for fname in sorted(os.listdir(templates_dir)):
+        if fname.lower().endswith('.xlsm') and fname.lower().startswith(prefix):
+            return fname, f'templates/{fname}'
+
+    return '', ''
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,11 +275,11 @@ def classify_email_groups(activities):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _derive_category(report_name):
-    """Return pipeline category from report name suffix, e.g. _Daily -> Daily."""
+    """Return pipeline category from report name prefix or suffix."""
     up = report_name.upper()
-    for suffix in ('_DAILY', '_WEEKLY', '_MONTHLY', '_HOURLY', '_QUARTERLY'):
-        if up.endswith(suffix):
-            return suffix.lstrip('_').capitalize()
+    for cat in ('DAILY', 'WEEKLY', 'MONTHLY', 'HOURLY', 'QUARTERLY'):
+        if up.endswith(f'_{cat}') or up.startswith(f'{cat}_'):
+            return cat.capitalize()
     return 'Custom'
 
 
@@ -284,16 +295,18 @@ def extract_report_metadata(decoded, report_name):
     desc_m = re.search(r'\bDescription="([^"]{5,})"', decoded)
     description = desc_m.group(1)[:200] if desc_m else report_name
 
-    container = safe.lower().replace('_', '-')
+    container = re.sub(r'-{2,}', '-', safe.lower().replace('_', '-')).strip('-')
     template_name, template_blob_path = extract_template_info(decoded, report_name)
 
     return {
         'report_name':        report_name,
+        'display_name':       '',          # populated by user via UI or left blank
         'pipeline_name':      f'PL_Generic_{category}',
         'report_category':    category.upper(),
         'description':        description,
         'schedule_time':      '06:00',
         'output_container':   container,
+        'template_container': TEMPLATE_CONTAINER,
         'template_name':      template_name,
         'template_blob_path': template_blob_path,
         'is_active':          'Y',
@@ -331,8 +344,10 @@ BEGIN
         [description]        VARCHAR(500) NULL,
         [schedule_time]      VARCHAR(10)  NOT NULL CONSTRAINT [DF_report_schedule] DEFAULT '06:00',
         [output_container]   VARCHAR(100) NOT NULL,
+        [template_container] VARCHAR(100) NULL,
         [template_name]      VARCHAR(500) NULL,
         [template_blob_path] VARCHAR(500) NULL,
+        [display_name]       VARCHAR(300) NULL,
         [is_active]          CHAR(1)      NOT NULL CONSTRAINT [DF_report_active]   DEFAULT 'Y',
         CONSTRAINT [PK_report]      PRIMARY KEY ([report_id]),
         CONSTRAINT [UQ_report_name] UNIQUE      ([report_name])
@@ -345,8 +360,12 @@ BEGIN
         ALTER TABLE [config].[report] ADD [template_name] VARCHAR(500) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_blob_path')
         ALTER TABLE [config].[report] ADD [template_blob_path] VARCHAR(500) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'template_container')
+        ALTER TABLE [config].[report] ADD [template_container] VARCHAR(100) NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'report_category')
         ALTER TABLE [config].[report] ADD [report_category] VARCHAR(50) NOT NULL CONSTRAINT [DF_report_category] DEFAULT 'CUSTOM';
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('config.report') AND name = 'display_name')
+        ALTER TABLE [config].[report] ADD [display_name] VARCHAR(300) NULL;
 END
 GO
 
@@ -393,7 +412,8 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
     """
     Return per-report INSERT SQL (idempotent).
     meta        : dict from extract_report_metadata()
-    email_groups: dict from classify_email_groups()  { email -> (group, type) }
+    email_groups: dict { (email, group) -> (group, type, is_active) }
+                  real emails have is_active='N', POC team emails have is_active='Y'
     sql_queries : dict from extract_sql_queries()    { 'ODS_CHECK': str, 'REPORT_MAIN': str }
     """
     lines = []
@@ -411,18 +431,22 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
     lines.append(f"-- ── config.report ──────────────────────────────────────────")
     lines.append(f"IF NOT EXISTS (SELECT 1 FROM config.report WHERE report_name = '{_sq(rn)}')")
     lines.append(f"BEGIN")
+    tname = 'NULL' if not meta['template_name'] else f"'{_sq(meta['template_name'])}'"
+    tblob = 'NULL' if not meta['template_blob_path'] else f"'{_sq(meta['template_blob_path'])}'"
+    tcont = f"'{_sq(meta['template_container'])}'"
+    dname = 'NULL' if not meta['display_name'] else f"'{_sq(meta['display_name'])}'"
     lines.append(f"    INSERT INTO config.report")
-    lines.append(f"        (report_name, pipeline_name, report_category, description, schedule_time,")
-    lines.append(f"         output_container, template_name, template_blob_path, is_active)")
+    lines.append(f"        (report_name, display_name, pipeline_name, report_category, description, schedule_time,")
+    lines.append(f"         output_container, template_container, template_name, template_blob_path, is_active)")
     lines.append(f"    VALUES (")
     lines.append(f"        '{_sq(rn)}',")
+    lines.append(f"        {dname},")
     lines.append(f"        '{_sq(meta['pipeline_name'])}',")
     lines.append(f"        '{_sq(meta['report_category'])}',")
     lines.append(f"        '{_sq(meta['description'])}',")
     lines.append(f"        '{meta['schedule_time']}',")
     lines.append(f"        '{meta['output_container']}',")
-    tname = 'NULL' if not meta['template_name'] else f"'{_sq(meta['template_name'])}'"
-    tblob = 'NULL' if not meta['template_blob_path'] else f"'{_sq(meta['template_blob_path'])}'"
+    lines.append(f"        {tcont},")
     lines.append(f"        {tname},")
     lines.append(f"        {tblob},")
     lines.append(f"        '{meta['is_active']}'")
@@ -430,10 +454,11 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
     lines.append(f"END")
     lines.append(f"ELSE")
     lines.append(f"BEGIN")
-    lines.append(f"    -- Update pipeline_name and category to generic pattern if re-run")
+    lines.append(f"    -- Update pipeline_name, category and template container if re-run")
     lines.append(f"    UPDATE config.report")
     lines.append(f"    SET    pipeline_name      = '{_sq(meta['pipeline_name'])}',")
-    lines.append(f"           report_category    = '{_sq(meta['report_category'])}'")
+    lines.append(f"           report_category    = '{_sq(meta['report_category'])}',")
+    lines.append(f"           template_container = {tcont}")
     if meta['template_name']:
         lines.append(f"          ,template_name      = '{_sq(meta['template_name'])}'")
         lines.append(f"          ,template_blob_path = '{_sq(meta['template_blob_path'])}'")
@@ -464,10 +489,11 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
 
     # config.report_email INSERTs
     lines.append(f"-- ── config.report_email ────────────────────────────────────")
+    lines.append(f"-- Real emails: is_active=N (inactive)  |  POC team emails: is_active=Y (active)")
     if not email_groups:
-        lines.append("-- No email addresses found in sanitised XML.")
+        lines.append("-- No email addresses found.")
     else:
-        for email, (group, etype) in sorted(email_groups.items(), key=lambda x: (x[1][0], x[1][1])):
+        for (email, _), (group, etype, is_active) in sorted(email_groups.items(), key=lambda x: (x[1][0], x[1][1])):
             lines.append(
                 f"IF NOT EXISTS (SELECT 1 FROM config.report_email "
                 f"WHERE report_id = @report_id "
@@ -475,13 +501,18 @@ def build_data_sql(meta, email_groups, sql_queries, verbose=False):
                 f"AND recipient_group = '{group}')"
             )
             lines.append(f"    INSERT INTO config.report_email (report_id, email_address, recipient_group, email_type, is_active)")
-            lines.append(f"    VALUES (@report_id, '{_sq(email)}', '{group}', '{etype}', 'Y');")
+            lines.append(f"    VALUES (@report_id, '{_sq(email)}', '{group}', '{etype}', '{is_active}');")
+            lines.append(f"ELSE")
+            lines.append(f"    UPDATE config.report_email")
+            lines.append(f"    SET    is_active = '{is_active}'")
+            lines.append(f"    WHERE  report_id = @report_id AND email_address = '{_sq(email)}' AND recipient_group = '{group}';")
             if verbose:
-                print(f'      {group:<15} {etype:<5} {email}')
+                status = 'active' if is_active == 'Y' else 'inactive'
+                print(f'      {group:<15} {etype:<5} {email}  [{status}]')
 
     lines.append("")
     lines.append(f"-- ── verify ─────────────────────────────────────────────────")
-    lines.append(f"SELECT r.report_name, r.template_name, r.template_blob_path")
+    lines.append(f"SELECT r.report_name, r.template_container, r.template_name, r.template_blob_path")
     lines.append(f"FROM   config.report r")
     lines.append(f"WHERE  r.report_name = '{_sq(rn)}';")
     lines.append("")
@@ -551,26 +582,38 @@ def generate_config(report_name, verbose=False, poc=False):
     meta        = extract_report_metadata(decoded, report_name)
     sql_queries = extract_sql_queries(raw, decoded)
 
-    if poc:
-        email_groups = load_poc_email_groups()
-        mode_label   = 'POC (dev team emails from poc_team_config.json)'
+    # Real emails → inactive; POC team emails → active (always both)
+    # Key is (email, group) to allow the same address in multiple groups
+    real_groups  = classify_email_groups(activities)
+    email_groups = {(email, group): (group, etype, 'N') for email, (group, etype) in real_groups.items()}
+    if os.path.exists(POC_CONFIG_PATH):
+        try:
+            with open(POC_CONFIG_PATH, encoding='utf-8') as _f:
+                _poc_cfg = json.load(_f)
+            for _e in _poc_cfg.get('poc_team_emails', []):
+                email_groups[(_e['email'], _e['group'])] = (_e['group'], _e['type'], 'Y')
+        except Exception as _ex:
+            print(f'  WARNING: could not load poc_team_config.json: {_ex}')
     else:
-        email_groups = classify_email_groups(activities)
-        mode_label   = 'default (mock emails from sanitised XML)'
+        print('  WARNING: poc_team_config.json not found — POC team emails not added.')
+    mode_label = 'real emails (inactive) + POC team emails (active)'
 
     print(f'\nTool 3 -- Config Schema + Data Setup')
     print(f'Report    : {report_name}')
     print(f'Mode      : {mode_label}')
     print(f'Category  : {meta["report_category"]}')
     print(f'Pipeline  : {meta["pipeline_name"]}  (generic -- shared across all {meta["report_category"]} reports)')
-    print(f'Container : {meta["output_container"]}')
-    print(f'Schedule  : {meta["schedule_time"]}')
-    print(f'Template  : {meta["template_name"] or "(not detected)"}')
+    print(f'OutContainer : {meta["output_container"]}')
+    print(f'TmplContainer: {meta["template_container"]}  (shared)')
+    print(f'Schedule     : {meta["schedule_time"]}')
+    print(f'Template     : {meta["template_name"] or "(not detected)"}')
     if meta['template_blob_path']:
-        print(f'Blob path : {meta["template_blob_path"]}')
+        print(f'Blob path    : {meta["template_container"]}/{meta["template_blob_path"]}')
     print(f'SQL       : {len(sql_queries)} query type(s) extracted ({", ".join(sql_queries.keys())})')
-    print(f'Emails    : {len(email_groups)} addresses across '
-          f'{len(set(g for g, _ in email_groups.values()))} groups')
+    _poc_count  = sum(1 for _, _, a in email_groups.values() if a == 'Y')
+    _real_count = len(email_groups) - _poc_count
+    print(f'Emails    : {len(email_groups)} addresses — '
+          f'{_real_count} real (inactive), {_poc_count} POC (active)')
 
     if verbose:
         print('\n  SQL queries:')
@@ -578,8 +621,9 @@ def generate_config(report_name, verbose=False, poc=False):
             preview = qtext[:120].replace('\n', ' ')
             print(f'    {qtype:<15}  {preview}')
         print('\n  Email groups:')
-        for email, (group, etype) in sorted(email_groups.items(), key=lambda x: (x[1][0], x[1][1])):
-            print(f'    {group:<15} {etype:<5}  {email}')
+        for (email, _), (group, etype, is_active) in sorted(email_groups.items(), key=lambda x: (x[1][0], x[1][1])):
+            status = 'active' if is_active == 'Y' else 'inactive'
+            print(f'    {group:<15} {etype:<5}  {email}  [{status}]')
 
     # ── Write global schema DDL (always regenerate to pick up schema changes) ──
     os.makedirs(global_cfg, exist_ok=True)

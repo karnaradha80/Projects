@@ -1,0 +1,23 @@
+============================================================
+BLOB UPLOAD CHECKLIST  --  Weekly__BIMIO_384
+============================================================
+
+TEMPLATE CONTAINER : toad-poc-reports  (shared)
+OUTPUT  CONTAINER  : weekly-bimio-384  (per-report)
+BLOB LAYOUT        : toad-poc-reports/templates/{filename}.xlsm
+
+EXPECTED TEMPLATES
+----------------------------------------
+  No xlsm templates found in sanitised XML.
+STORAGE ACCOUNT
+----------------------------------------
+  [OK] sttoadpoc
+
+ACTION REQUIRED
+----------------------------------------
+UPLOAD SCRIPT
+----------------------------------------
+  reports/Weekly__BIMIO_384/blob/upload_Weekly__BIMIO_384.ps1  (or .sh)
+
+STATUS: READY TO UPLOAD
+============================================================

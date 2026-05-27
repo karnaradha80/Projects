@@ -1,0 +1,19 @@
+{
+    "name": "LS_AzureBlobStorage",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure Blob Storage -- report output and archive",
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "connectionString": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "LS_AzureKeyVault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "storage-account-key"
+            }
+        },
+        "annotations": []
+    }
+}

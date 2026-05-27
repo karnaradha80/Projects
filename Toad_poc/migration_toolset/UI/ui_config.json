@@ -1,0 +1,7 @@
+{
+    "run_modes": {
+        "single_report": true,
+        "batch_run": true
+    },
+    "_note": "Set single_report or batch_run to false to hide that mode from the UI."
+}

@@ -53,11 +53,11 @@ def _decode(text):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _derive_category(report_name):
-    """Return pipeline category from report name suffix, e.g. _Daily -> Daily."""
+    """Return pipeline category from report name prefix or suffix."""
     up = report_name.upper()
-    for suffix in ('_DAILY', '_WEEKLY', '_MONTHLY', '_HOURLY', '_QUARTERLY'):
-        if up.endswith(suffix):
-            return suffix.lstrip('_').capitalize()
+    for cat in ('DAILY', 'WEEKLY', 'MONTHLY', 'HOURLY', 'QUARTERLY'):
+        if up.endswith(f'_{cat}') or up.startswith(f'{cat}_'):
+            return cat.capitalize()
     return 'Custom'
 
 
@@ -771,7 +771,7 @@ def generate_adf(report_name, verbose=False):
     # ── Datasets (generic — 3 total) ──────────────────────────────────────────
     datasets = [
         ds_sql_config(),
-        ds_blob_generic('DS_Blob_Generic_Output',  'Report CSV output',  'output',  'file_name'),
+        ds_blob_generic('DS_Blob_Generic_Output',  'Report CSV output',  'output_csv',  'file_name'),
         ds_blob_generic('DS_Blob_Generic_Archive', 'Report CSV archive', 'archive', 'archive_file_name'),
     ]
     for ds in datasets:
@@ -789,11 +789,46 @@ def generate_adf(report_name, verbose=False):
 
     # ── ARM template ──────────────────────────────────────────────────────────
     arm = build_arm_template(report_name, category, linked_services, datasets, pipeline)
-    _write_json(os.path.join(out_dir, 'arm_template.json'), arm)
+
+    # Preserve excel_writer_url if it was already configured in the existing template
+    existing_arm_path = os.path.join(out_dir, 'arm_template.json')
+    if os.path.exists(existing_arm_path):
+        try:
+            with open(existing_arm_path, encoding='utf-8') as _f:
+                _existing = json.load(_f)
+            for _res in _existing.get('resources', []):
+                _params = _res.get('properties', {}).get('parameters', {})
+                if 'excel_writer_url' in _params:
+                    _val = _params['excel_writer_url'].get('defaultValue', '')
+                    if _val and '<' not in _val and _val.startswith('https://'):
+                        for _new_res in arm.get('resources', []):
+                            _new_params = _new_res.get('properties', {}).get('parameters', {})
+                            if 'excel_writer_url' in _new_params:
+                                _new_params['excel_writer_url']['defaultValue'] = _val
+                                print(f'  Preserved excel_writer_url from existing template.')
+                        break
+        except Exception:
+            pass
+
+    _write_json(existing_arm_path, arm)
     print(f'  ARM arm_template.json  ({len(arm["resources"])} resources)')
 
     params = build_parameters()
-    _write_json(os.path.join(out_dir, 'arm_template_parameters.json'), params)
+    # Preserve filled-in parameter values from the existing params file
+    existing_params_path = os.path.join(out_dir, 'arm_template_parameters.json')
+    if os.path.exists(existing_params_path):
+        try:
+            with open(existing_params_path, encoding='utf-8') as _f:
+                _existing_params = json.load(_f)
+            for _k, _pv in _existing_params.get('parameters', {}).items():
+                _existing_val = str(_pv.get('value', ''))
+                if _existing_val and not (_existing_val.startswith('<') and _existing_val.endswith('>')):
+                    if _k in params.get('parameters', {}):
+                        params['parameters'][_k]['value'] = _existing_val
+        except Exception:
+            pass
+
+    _write_json(existing_params_path, params)
     print(f'  ARM arm_template_parameters.json')
 
     print(f'\nDone. Output: {out_dir}')

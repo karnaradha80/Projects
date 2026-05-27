@@ -121,7 +121,7 @@ def sanitize_file(xml_path, registry, verbose=False):
     parser = ToadXmlParser(xml_path)
     parser.parse()
     s = parser.summary()
-    report_name = s['report_name'] or os.path.splitext(report_file)[0]
+    report_name = os.path.splitext(report_file)[0]
 
     if verbose:
         print(f'  Report name: {report_name}')
