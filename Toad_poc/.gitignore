@@ -36,8 +36,13 @@ __pycache__/
 *.py[cod]
 *.pyo
 .env
+**/.env
 venv/
 .venv/
+
+# Explicit paths that contained secrets (extra protection after filter-repo cleanup)
+databricks-poc/automation/.env
+secrets_to_remove.txt
 
 # Logs
 *.log
