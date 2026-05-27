@@ -1542,7 +1542,7 @@ if run_mode == 'Batch Run':
                                 row['errors'].append(f'Tool 4 (deploy): {last}')
 
                     if run_t5:
-                        ok, out = _capture(generate_upload, rn, batch_verb)
+                        ok, out = _capture(generate_upload, rn, batch_verb, execute=True)
                         row['t5'] = ok
                         if not ok:
                             row['errors'].append(f'Tool 5: {out.splitlines()[-1] if out.strip() else "failed"}')

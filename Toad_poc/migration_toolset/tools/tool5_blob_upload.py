@@ -5,8 +5,8 @@ Extracts the expected .xlsm template filename from the sanitised Toad XML.
 Checks whether the file has been placed in report_templates/.
 Generates ready-to-run upload scripts (PowerShell + bash) for az storage blob upload.
 
-Does NOT connect to Azure or execute any az CLI commands.
-The generated scripts are reviewed and run by the user when ready.
+When execute=True (used by the UI batch run), also calls az storage blob upload
+directly via subprocess so no manual step is needed.
 
 Blob Storage target layout:
   toad-poc-reports/templates/{template_filename}.xlsm     <- shared template container
@@ -32,12 +32,18 @@ import glob
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 BASE_DIR           = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 REPORTS_DIR        = os.path.join(BASE_DIR, 'reports')
 GLOBAL_DIR         = os.path.join(BASE_DIR, 'global')
 TEMPLATE_CONTAINER = 'toad-poc-reports'   # shared container for all report templates
+
+# On Windows, az installs as az.cmd which requires shell=True to execute.
+# Detect at import time so _execute_upload works on both Windows and Linux.
+_AZ_SHELL = os.name == 'nt'   # True on Windows
 
 
 def _output_container(report_name):
@@ -353,10 +359,113 @@ def build_checklist(report_name, templates, local_dir, storage_account):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Azure execution
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _execute_upload(templates, storage_account, local_dir, verbose=False):
+    """
+    Run az storage blob upload for each template file via subprocess.
+    Returns list of (filename, ok, stdout, stderr).
+    Prints progress to stdout (captured by the UI via _capture).
+    """
+    results = []
+
+    if storage_account.startswith('<'):
+        print(f'  [SKIP] Storage account not configured: {storage_account}')
+        print('  Fill storage_account_name in arm_template_parameters.json first.')
+        return results
+
+    if not templates:
+        print('  No xlsm templates detected — nothing to upload.')
+        return results
+
+    # -- Check az CLI is reachable before running anything ---------------------
+    az_found = bool(shutil.which('az') or shutil.which('az.cmd'))
+    if not az_found and not _AZ_SHELL:
+        print('  [ERROR] az CLI not found. Install: https://learn.microsoft.com/cli/azure/install-azure-cli')
+        return results
+
+    # -- Fetch storage account key (avoids RBAC data-plane permission issues) --
+    print(f'  Fetching storage key for: {storage_account} ...')
+    account_key = None
+    try:
+        kr = subprocess.run(
+            ['az', 'storage', 'account', 'keys', 'list',
+             '--account-name', storage_account,
+             '--query', '[0].value',
+             '--output', 'tsv'],
+            capture_output=True, text=True, shell=_AZ_SHELL
+        )
+        if kr.returncode == 0:
+            account_key = kr.stdout.strip()
+            if verbose:
+                print(f'  Storage key fetched (length {len(account_key)})')
+        else:
+            err = (kr.stderr or kr.stdout or 'key fetch failed').strip()[:300]
+            print(f'  [WARN] Could not fetch key (will try --auth-mode login): {err}')
+    except FileNotFoundError:
+        print('  [ERROR] az CLI not found. Install: https://learn.microsoft.com/cli/azure/install-azure-cli')
+        return results
+
+    # -- Build common auth args ------------------------------------------------
+    if account_key:
+        auth_args = ['--account-key', account_key]
+    else:
+        auth_args = ['--auth-mode', 'login']
+
+    # -- Ensure shared template container exists (idempotent) ------------------
+    print(f'  Ensuring container: {TEMPLATE_CONTAINER} ...')
+    cp = subprocess.run(
+        ['az', 'storage', 'container', 'create',
+         '--account-name', storage_account,
+         '--name', TEMPLATE_CONTAINER] + auth_args,
+        capture_output=True, text=True, shell=_AZ_SHELL
+    )
+    if cp.returncode != 0 and verbose:
+        print(f'  Container create note: {cp.stderr.strip()[:300]}')
+
+    # -- Upload each template --------------------------------------------------
+    for t in templates:
+        fname      = t['filename']
+        blob_name  = f'templates/{fname}'
+        local_path = os.path.join(local_dir, fname)
+
+        if not os.path.isfile(local_path):
+            print(f'  [SKIP] Local file not found: {local_path}')
+            results.append((fname, False, '', 'local file not found'))
+            continue
+
+        print(f'  Uploading: {blob_name} ...')
+        r = subprocess.run(
+            ['az', 'storage', 'blob', 'upload',
+             '--account-name', storage_account,
+             '--container-name', TEMPLATE_CONTAINER,
+             '--name', blob_name,
+             '--file', local_path,
+             '--overwrite'] + auth_args,
+            capture_output=True, text=True, shell=_AZ_SHELL
+        )
+        ok = r.returncode == 0
+        if ok:
+            print(f'  [OK] Uploaded: {blob_name}')
+        else:
+            err = (r.stderr or r.stdout or 'upload failed').strip()[:400]
+            print(f'  [ERROR] {fname}: {err}')
+        if verbose:
+            if r.stdout.strip():
+                print(f'    stdout: {r.stdout.strip()[:300]}')
+            if r.stderr.strip():
+                print(f'    stderr: {r.stderr.strip()[:300]}')
+        results.append((fname, ok, r.stdout, r.stderr))
+
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Orchestration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_upload(report_name, verbose=False):
+def generate_upload(report_name, verbose=False, execute=False):
     xml_path  = os.path.join(REPORTS_DIR, report_name, 'sanitized', f'{report_name}_sanitized.txt')
     local_dir = os.path.join(BASE_DIR, 'report_templates')
     out_dir   = os.path.join(REPORTS_DIR, report_name, 'blob')
@@ -421,7 +530,29 @@ def generate_upload(report_name, verbose=False):
         f.write(checklist)
     print(f'  Check  : blob_checklist.txt')
 
-    print(f'\n{checklist}')
+    if verbose:
+        print(f'\n{checklist}')
+
+    # ── Execute upload if requested ───────────────────────────────────────────
+    if execute:
+        print(f'\nExecuting az storage blob upload ...')
+        upload_results = _execute_upload(templates, storage_account, local_dir, verbose)
+        if upload_results:
+            ok_count  = sum(1 for _, ok, _, _ in upload_results if ok)
+            bad_count = len(upload_results) - ok_count
+            print(f'  Upload result: {ok_count}/{len(upload_results)} OK')
+            if bad_count:
+                print(f'  [WARNING] {bad_count} upload(s) failed — see above for details')
+                sys.exit(1)
+        elif templates:
+            # templates exist but nothing ran (az missing / account not set)
+            print('  [WARNING] Upload skipped — az CLI missing or storage account not configured')
+            sys.exit(1)
+        else:
+            print('  No templates to upload — nothing to do.')
+    else:
+        # Script-only mode: print the checklist so the user sees what to run
+        print(f'\n{checklist}')
 
 
 def main():
@@ -429,8 +560,10 @@ def main():
     ap.add_argument('report', help='Report name (folder under reports/)')
     ap.add_argument('-v', '--verbose', action='store_true',
                     help='Show template file details')
+    ap.add_argument('--execute', action='store_true',
+                    help='Actually run az storage blob upload (default: generate scripts only)')
     args = ap.parse_args()
-    generate_upload(args.report, verbose=args.verbose)
+    generate_upload(args.report, verbose=args.verbose, execute=args.execute)
 
 
 if __name__ == '__main__':
