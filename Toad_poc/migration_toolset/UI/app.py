@@ -1992,7 +1992,8 @@ with tabs[3]:
 
 with tabs[4]:
     st.subheader('Step 5 — Blob Upload Scripts')
-    st.caption('Generates az storage blob upload scripts for Excel (.xlsm) report templates.')
+    st.caption('Generates az storage blob upload scripts — templates upload to the shared '
+               '`toad-poc-reports/templates/` container; report output goes to a per-report container.')
 
     if not report_name:
         st.warning('Select a report in the sidebar first.')
