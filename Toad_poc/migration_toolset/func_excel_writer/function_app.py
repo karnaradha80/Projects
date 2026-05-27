@@ -29,10 +29,12 @@ Response (JSON):
 
 import azure.functions as func
 import csv
+import datetime
 import io
 import json
 import logging
 import os
+from typing import Optional
 
 import openpyxl
 import pymssql
@@ -62,6 +64,65 @@ def _pymssql_connect():
         port=1433,
         login_timeout=30,
     )
+
+
+def _history_start(report_name: str) -> Optional[int]:
+    """
+    Insert an InProgress row into config.Report_Process_History.
+    Returns the new History_id, or None if the insert fails (non-fatal).
+    """
+    try:
+        with _pymssql_connect() as conn:
+            cursor = conn.cursor()
+            # Resolve report_id FK
+            cursor.execute(
+                "SELECT report_id FROM config.report WHERE report_name = %s",
+                (report_name,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                logger.warning("history_start: report not in config.report: %s", report_name)
+                return None
+            report_id = row[0]
+            run_dt = datetime.datetime.utcnow()
+            cursor.execute(
+                """INSERT INTO [config].[Report_Process_History]
+                       ([Report_id], [Report_Run_Datetime],
+                        [Report_Process_Status], [Created_Datetime])
+                   VALUES (%d, %s, 'InProgress', %s)""",
+                (report_id, run_dt, run_dt)
+            )
+            cursor.execute("SELECT SCOPE_IDENTITY()")
+            history_id = int(cursor.fetchone()[0])
+            conn.commit()
+            logger.info("history_start: report=%s  history_id=%d  status=InProgress",
+                        report_name, history_id)
+            return history_id
+    except Exception as exc:
+        logger.warning("history_start failed (non-fatal): %s", exc)
+        return None
+
+
+def _history_end(history_id: Optional[int], status: str):
+    """
+    Update Report_Process_Status to 'Success' or 'Failed'.
+    Non-fatal — a logging failure must never mask a real report error.
+    """
+    if history_id is None:
+        return
+    try:
+        with _pymssql_connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """UPDATE [config].[Report_Process_History]
+                   SET    [Report_Process_Status] = %s
+                   WHERE  [History_id] = %d""",
+                (status, history_id)
+            )
+            conn.commit()
+            logger.info("history_end: history_id=%d  status=%s", history_id, status)
+    except Exception as exc:
+        logger.warning("history_end failed (non-fatal): %s", exc)
 
 
 def _get_report_config(report_name: str) -> dict:
@@ -186,6 +247,9 @@ def excel_writer(req: func.HttpRequest) -> func.HttpResponse:
 
     logger.info("excel_writer called: report_name=%s  report_date=%s", report_name, report_date)
 
+    # ── Log process start (InProgress) ────────────────────────────────────────
+    history_id = _history_start(report_name)
+
     try:
         # ── 1. Read config ────────────────────────────────────────────────────
         cfg                = _get_report_config(report_name)
@@ -209,6 +273,9 @@ def excel_writer(req: func.HttpRequest) -> func.HttpResponse:
 
         logger.info("excel_writer complete: %s / %s", output_container, output_blob_name)
 
+        # ── Log success ───────────────────────────────────────────────────────
+        _history_end(history_id, 'Success')
+
         return func.HttpResponse(
             json.dumps({
                 "status":      "ok",
@@ -222,10 +289,12 @@ def excel_writer(req: func.HttpRequest) -> func.HttpResponse:
 
     except ValueError as exc:
         logger.warning("excel_writer config error: %s", exc)
+        _history_end(history_id, 'Failed')
         return func.HttpResponse(str(exc), status_code=404)
 
     except Exception as exc:
         logger.exception("excel_writer failed for %s: %s", report_name, exc)
+        _history_end(history_id, 'Failed')
         return func.HttpResponse(
             json.dumps({"status": "error", "message": str(exc)}),
             mimetype="application/json",

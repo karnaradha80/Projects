@@ -11,13 +11,14 @@ import csv
 import io
 import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 import openpyxl
 
 
 # ── Import the functions under test (no Azure env vars needed) ────────────────
 sys.path.insert(0, '.')
-from function_app import _write_csv_into_template, _find_data_sheet
+from function_app import _write_csv_into_template, _find_data_sheet, _history_start, _history_end
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +151,98 @@ class TestWriteCsvIntoTemplate(unittest.TestCase):
         result = _write_csv_into_template(tmpl, csv_b)
         self.assertIsInstance(result, bytes)
         self.assertGreater(len(result), 0)
+
+
+class TestHistoryStart(unittest.TestCase):
+    """_history_start must be non-fatal; must INSERT and return history_id on success."""
+
+    def _make_mock_conn(self, report_id=42, history_id=7):
+        """Return a mock connection whose cursor mimics the two SELECT calls."""
+        cursor = MagicMock()
+        # First fetchone: report_id lookup; second fetchone: SCOPE_IDENTITY
+        cursor.fetchone.side_effect = [(report_id,), (history_id,)]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = lambda s: conn
+        conn.__exit__ = MagicMock(return_value=False)
+        return conn, cursor
+
+    @patch('function_app._pymssql_connect')
+    def test_returns_history_id_on_success(self, mock_connect):
+        conn, cursor = self._make_mock_conn(report_id=1, history_id=99)
+        mock_connect.return_value = conn
+
+        result = _history_start('Daily_BIMIO_267')
+
+        self.assertEqual(result, 99)
+        conn.commit.assert_called_once()
+
+    @patch('function_app._pymssql_connect')
+    def test_returns_none_when_report_not_found(self, mock_connect):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None      # report not in config.report
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = lambda s: conn
+        conn.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        result = _history_start('NoSuchReport')
+
+        self.assertIsNone(result)
+
+    @patch('function_app._pymssql_connect')
+    def test_returns_none_on_db_error(self, mock_connect):
+        mock_connect.side_effect = Exception("connection refused")
+
+        result = _history_start('Daily_BIMIO_267')   # must not raise
+
+        self.assertIsNone(result)
+
+
+class TestHistoryEnd(unittest.TestCase):
+    """_history_end must be non-fatal; must UPDATE when history_id is known."""
+
+    @patch('function_app._pymssql_connect')
+    def test_updates_status_to_success(self, mock_connect):
+        cursor = MagicMock()
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = lambda s: conn
+        conn.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        _history_end(7, 'Success')   # must not raise
+
+        cursor.execute.assert_called_once()
+        call_args = cursor.execute.call_args[0]
+        self.assertIn('UPDATE', call_args[0])
+        self.assertIn('Success', call_args[1])
+        conn.commit.assert_called_once()
+
+    @patch('function_app._pymssql_connect')
+    def test_updates_status_to_failed(self, mock_connect):
+        cursor = MagicMock()
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = lambda s: conn
+        conn.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        _history_end(7, 'Failed')
+
+        call_args = cursor.execute.call_args[0]
+        self.assertIn('Failed', call_args[1])
+
+    def test_noop_when_history_id_is_none(self):
+        # No DB call should be made; no exception raised
+        _history_end(None, 'Success')   # must not raise or connect
+
+    @patch('function_app._pymssql_connect')
+    def test_silently_absorbs_db_error(self, mock_connect):
+        mock_connect.side_effect = Exception("network timeout")
+
+        _history_end(99, 'Success')     # must not raise
 
 
 if __name__ == '__main__':

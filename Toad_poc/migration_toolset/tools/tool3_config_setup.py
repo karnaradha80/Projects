@@ -405,6 +405,31 @@ BEGIN
     );
 END
 GO
+
+-- ── config.Report_Process_History ────────────────────────────
+-- Tracks every execution of the Excel writer Azure Function.
+-- Status lifecycle: InProgress -> Success | Failed
+IF OBJECT_ID('config.Report_Process_History', 'U') IS NULL
+BEGIN
+    CREATE TABLE [config].[Report_Process_History]
+    (
+        [History_id]            INT          IDENTITY(1,1) NOT NULL,
+        [Report_id]             INT          NOT NULL,
+        [Report_Run_Datetime]   DATETIME2    NOT NULL
+            CONSTRAINT [DF_rph_run_dt]      DEFAULT GETUTCDATE(),
+        [Report_Process_Status] VARCHAR(20)  NOT NULL
+            CONSTRAINT [DF_rph_status]      DEFAULT 'InProgress',
+        [Created_Datetime]      DATETIME2    NOT NULL
+            CONSTRAINT [DF_rph_created_dt]  DEFAULT GETUTCDATE(),
+        CONSTRAINT [PK_Report_Process_History]
+            PRIMARY KEY ([History_id]),
+        CONSTRAINT [CK_rph_status]
+            CHECK ([Report_Process_Status] IN ('InProgress', 'Success', 'Failed')),
+        CONSTRAINT [FK_Report_Process_History_report]
+            FOREIGN KEY ([Report_id]) REFERENCES [config].[report] ([report_id])
+    );
+END
+GO
 """
 
 
