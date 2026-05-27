@@ -699,8 +699,8 @@ def _get_clear_all_counts():
     return counts
 
 
-def _run_clear_all():
-    """Delete all SQL config rows and all ADF resources. Returns (ok, log)."""
+def _run_clear_all(clean_db=True, clean_adf=True):
+    """Delete SQL config rows and/or all ADF resources. Returns (ok, log)."""
     import subprocess
     import shutil
     import json as _json
@@ -715,70 +715,76 @@ def _run_clear_all():
     lines = []
 
     # ── SQL: delete config rows ──────────────────────────────────────────────
-    lines.append('── SQL Config ──────────────────────────────')
-    try:
-        sql_pass = subprocess.run(
-            [AZ, 'keyvault', 'secret', 'show',
-             '--vault-name', cfg['keyvault_name'],
-             '--name', 'azuresql-db-password', '--query', 'value', '-o', 'tsv'],
-            capture_output=True, text=True, timeout=30
-        ).stdout.strip()
-        import pymssql as _mssql
-        conn = _mssql.connect(
-            server=f"{cfg['sql_server']}.database.windows.net",
-            user=cfg['sql_admin_user'], password=sql_pass,
-            database=cfg['sql_database'], port=1433, login_timeout=15)
-        cur = conn.cursor()
-        for tbl in ('config.report_email', 'config.report_sql', 'config.report'):
-            cur.execute(f'DELETE FROM {tbl}')
-            lines.append(f'  DELETE {tbl}: {cur.rowcount} rows')
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        lines.append(f'  ERROR: {e}')
-        return False, '\n'.join(lines)
+    if clean_db:
+        lines.append('── SQL Config ──────────────────────────────')
+        try:
+            sql_pass = subprocess.run(
+                [AZ, 'keyvault', 'secret', 'show',
+                 '--vault-name', cfg['keyvault_name'],
+                 '--name', 'azuresql-db-password', '--query', 'value', '-o', 'tsv'],
+                capture_output=True, text=True, timeout=30
+            ).stdout.strip()
+            import pymssql as _mssql
+            conn = _mssql.connect(
+                server=f"{cfg['sql_server']}.database.windows.net",
+                user=cfg['sql_admin_user'], password=sql_pass,
+                database=cfg['sql_database'], port=1433, login_timeout=15)
+            cur = conn.cursor()
+            for tbl in ('config.Report_Process_History',
+                        'config.report_email', 'config.report_sql', 'config.report'):
+                try:
+                    cur.execute(f'DELETE FROM {tbl}')
+                    lines.append(f'  DELETE {tbl}: {cur.rowcount} rows')
+                except Exception as _te:
+                    lines.append(f'  SKIP {tbl}: {_te}')
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            lines.append(f'  ERROR: {e}')
+            return False, '\n'.join(lines)
 
     # ── ADF: stop + delete triggers ──────────────────────────────────────────
-    lines.append('')
-    lines.append('── ADF Triggers ────────────────────────────')
-    try:
-        r = subprocess.run([AZ, 'datafactory', 'trigger', 'list',
-                            '--factory-name', adf, '--resource-group', rg],
-                           capture_output=True, text=True, timeout=30)
-        triggers = [t['name'] for t in _json.loads(r.stdout)] if r.returncode == 0 else []
-        for name in triggers:
-            subprocess.run([AZ, 'datafactory', 'trigger', 'stop',
-                            '--factory-name', adf, '--resource-group', rg, '--name', name],
-                           capture_output=True, text=True, timeout=60)
-            subprocess.run([AZ, 'datafactory', 'trigger', 'delete',
-                            '--factory-name', adf, '--resource-group', rg, '--name', name, '--yes'],
-                           capture_output=True, text=True, timeout=30)
-            lines.append(f'  Deleted: {name}')
-        if not triggers:
-            lines.append('  (none)')
-    except Exception as e:
-        lines.append(f'  ERROR: {e}')
-
-    # ── ADF: delete pipelines, datasets, linked services ────────────────────
-    for label, resource in [('Pipelines', 'pipeline'), ('Datasets', 'dataset'),
-                             ('Linked Services', 'linked-service')]:
+    if clean_adf:
         lines.append('')
-        lines.append(f'── ADF {label} ─────────────────────────────')
+        lines.append('── ADF Triggers ────────────────────────────')
         try:
-            r = subprocess.run([AZ, 'datafactory', resource, 'list',
+            r = subprocess.run([AZ, 'datafactory', 'trigger', 'list',
                                 '--factory-name', adf, '--resource-group', rg],
                                capture_output=True, text=True, timeout=30)
-            items = [i['name'] for i in _json.loads(r.stdout)] if r.returncode == 0 else []
-            for name in items:
-                subprocess.run([AZ, 'datafactory', resource, 'delete',
-                                '--factory-name', adf, '--resource-group', rg,
-                                '--name', name, '--yes'],
+            triggers = [t['name'] for t in _json.loads(r.stdout)] if r.returncode == 0 else []
+            for name in triggers:
+                subprocess.run([AZ, 'datafactory', 'trigger', 'stop',
+                                '--factory-name', adf, '--resource-group', rg, '--name', name],
+                               capture_output=True, text=True, timeout=60)
+                subprocess.run([AZ, 'datafactory', 'trigger', 'delete',
+                                '--factory-name', adf, '--resource-group', rg, '--name', name, '--yes'],
                                capture_output=True, text=True, timeout=30)
                 lines.append(f'  Deleted: {name}')
-            if not items:
+            if not triggers:
                 lines.append('  (none)')
         except Exception as e:
             lines.append(f'  ERROR: {e}')
+
+        # ── ADF: delete pipelines, datasets, linked services ────────────────
+        for label, resource in [('Pipelines', 'pipeline'), ('Datasets', 'dataset'),
+                                 ('Linked Services', 'linked-service')]:
+            lines.append('')
+            lines.append(f'── ADF {label} ─────────────────────────────')
+            try:
+                r = subprocess.run([AZ, 'datafactory', resource, 'list',
+                                    '--factory-name', adf, '--resource-group', rg],
+                                   capture_output=True, text=True, timeout=30)
+                items = [i['name'] for i in _json.loads(r.stdout)] if r.returncode == 0 else []
+                for name in items:
+                    subprocess.run([AZ, 'datafactory', resource, 'delete',
+                                    '--factory-name', adf, '--resource-group', rg,
+                                    '--name', name, '--yes'],
+                                   capture_output=True, text=True, timeout=30)
+                    lines.append(f'  Deleted: {name}')
+                if not items:
+                    lines.append('  (none)')
+            except Exception as e:
+                lines.append(f'  ERROR: {e}')
 
     lines.append('')
     lines.append('── Done ────────────────────────────────────')
@@ -832,6 +838,36 @@ def _run_disable_reports(report_names):
 
     lines.append('')
     lines.append('── Done ────────────────────────────────────')
+    return True, '\n'.join(lines)
+
+
+def _run_clean_local(report_names):
+    """Delete all step output directories for the given reports. Returns (ok, log)."""
+    import shutil
+    CLEAN_SUBDIRS = [
+        'sanitized', 'adf', 'config', 'blob',
+        'ddl', 'mock_data', 'process_log',
+    ]
+    lines = ['── Local Report Folders ─────────────────────']
+    total = 0
+    for rn in report_names:
+        r = os.path.join(REPORTS_DIR, rn)
+        if not os.path.isdir(r):
+            lines.append(f'  {rn}: folder not found — skip')
+            continue
+        removed = []
+        for sub in CLEAN_SUBDIRS:
+            sub_path = os.path.join(r, sub)
+            if os.path.exists(sub_path):
+                shutil.rmtree(sub_path)
+                removed.append(sub)
+                total += 1
+        if removed:
+            lines.append(f'  {rn}: removed {", ".join(removed)}')
+        else:
+            lines.append(f'  {rn}: nothing to clean')
+    lines.append(f'')
+    lines.append(f'  Sub-folders removed: {total}')
     return True, '\n'.join(lines)
 
 
@@ -1431,7 +1467,7 @@ if run_mode == 'Batch Run':
 
     batch_action = st.radio(
         'Action',
-        ['Add / Update', 'Disable'],
+        ['Add / Update', 'Disable', 'Clean'],
         horizontal=True,
         key='batch_action',
     )
@@ -1624,6 +1660,109 @@ if run_mode == 'Batch Run':
                 else:
                     st.error('Completed with errors — see output below.')
                 st.code(out, language=None)
+
+        # ── Clean ─────────────────────────────────────────────────────────
+        elif batch_action == 'Clean':
+            st.markdown(
+                '<div style="background:#FFF3E0;border-left:4px solid #F9A825;'
+                'border-radius:6px;padding:12px 16px;margin-bottom:12px;">'
+                '<b>Destructive operation</b> — select exactly what to clean. '
+                'This cannot be undone.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+            cc1, cc2, cc3 = st.columns(3)
+            with cc1:
+                st.markdown('#### 🗂️ Local Folders')
+                st.caption('Removes generated output dirs from `reports/` for each selected report:\n'
+                           '`sanitized/` `adf/` `config/` `blob/` `ddl/` `mock_data/` `process_log/`')
+                clean_local = st.checkbox('Include local folders', value=True, key='clean_local')
+            with cc2:
+                st.markdown('#### 🗃️ DB Scripts')
+                st.caption('Deletes **all rows** from:\n'
+                           '`config.report` `config.report_sql`\n'
+                           '`config.report_email` `config.Report_Process_History`\n'
+                           '_(entire environment, not per-report)_')
+                clean_db = st.checkbox('Include DB config tables', value=False, key='clean_db')
+            with cc3:
+                st.markdown('#### ☁️ ADF Resources')
+                st.caption('Stops + deletes from Azure Data Factory:\n'
+                           'All triggers, pipelines, datasets, linked services\n'
+                           '_(entire ADF factory, not per-report)_')
+                clean_adf = st.checkbox('Include ADF resources', value=False, key='clean_adf')
+
+            st.divider()
+
+            # Scope summary
+            scope_parts = []
+            if clean_local:
+                scope_parts.append(f'local folders for **{len(batch_files)}** report(s)')
+            if clean_db:
+                scope_parts.append('all SQL config rows')
+            if clean_adf:
+                scope_parts.append('all ADF triggers / pipelines / datasets / linked services')
+
+            if scope_parts:
+                st.markdown('**Will clean:** ' + ' · '.join(scope_parts))
+            else:
+                st.info('Select at least one scope above.')
+
+            # Azure config required for DB / ADF
+            az_cfg_path = os.path.join(GLOBAL_DIR, 'poc_azure_config.json')
+            if (clean_db or clean_adf) and not os.path.exists(az_cfg_path):
+                st.error('`global/poc_azure_config.json` not found — required for DB / ADF clean.')
+
+            nothing_selected = not clean_local and not clean_db and not clean_adf
+            az_missing = (clean_db or clean_adf) and not os.path.exists(az_cfg_path)
+
+            clean_confirm = st.checkbox(
+                'I understand — this will permanently delete the selected items',
+                key='clean_confirm',
+            )
+
+            if st.button(
+                '🗑️  Clean Selected',
+                type='primary',
+                key='btn_clean',
+                disabled=not clean_confirm or nothing_selected or az_missing,
+            ):
+                all_ok = True
+                out_parts = []
+
+                with st.spinner('Cleaning...'):
+                    if clean_local:
+                        targets = batch_files if batch_files else []
+                        if targets:
+                            ok, txt = _run_clean_local(targets)
+                            all_ok = all_ok and ok
+                            out_parts.append(txt)
+                            # Clear session state for cleaned reports
+                            for rn in targets:
+                                _clear_from_step(rn, 1)
+                        else:
+                            out_parts.append('Local: no reports selected — skipped.')
+
+                    if clean_db or clean_adf:
+                        ok, txt = _run_clear_all(clean_db=clean_db, clean_adf=clean_adf)
+                        all_ok = all_ok and ok
+                        out_parts.append(txt)
+
+                st.session_state['clean_output'] = '\n\n'.join(out_parts)
+                st.session_state['clean_ok'] = all_ok
+                st.rerun()
+
+            if 'clean_output' in st.session_state:
+                st.divider()
+                if st.session_state['clean_ok']:
+                    st.success('Clean completed successfully.')
+                else:
+                    st.error('Clean completed with errors — see output below.')
+                _show_output(st.session_state['clean_output'], 'Clean Output')
+                if st.button('Clear output', key='btn_clear_clean_output'):
+                    st.session_state.pop('clean_output', None)
+                    st.session_state.pop('clean_ok', None)
+                    st.rerun()
 
     # Stop here — don't show single-report tabs in batch mode
     st.stop()
